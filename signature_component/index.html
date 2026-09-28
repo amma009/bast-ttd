@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+/>
+
+<title>Signature Pad</title>
+
+
+<style>
+
+    * {
+        box-sizing: border-box;
+    }
+
+
+    html,
+    body {
+
+        margin: 0;
+        padding: 0;
+
+        width: 100%;
+
+        background: transparent;
+
+        font-family:
+            -apple-system,
+            BlinkMacSystemFont,
+            "Segoe UI",
+            sans-serif;
+    }
+
+
+    .wrapper {
+
+        width: 100%;
+
+        display: flex;
+
+        flex-direction: column;
+
+        gap: 8px;
+    }
+
+
+    .canvas-container {
+
+        width: 100%;
+
+        border: 1px solid #999;
+
+        border-radius: 8px;
+
+        background: white;
+
+        overflow: hidden;
+    }
+
+
+    canvas {
+
+        display: block;
+
+        width: 100%;
+
+        height: 180px;
+
+        background: white;
+
+        cursor: crosshair;
+
+        touch-action: none;
+    }
+
+
+    .toolbar {
+
+        display: flex;
+
+        gap: 8px;
+
+        align-items: center;
+    }
+
+
+    button {
+
+        border: 1px solid #bbb;
+
+        background: white;
+
+        color: #222;
+
+        border-radius: 6px;
+
+        padding: 6px 14px;
+
+        font-size: 13px;
+
+        cursor: pointer;
+    }
+
+
+    button:hover {
+
+        background: #f2f2f2;
+    }
+
+
+    .status {
+
+        font-size: 12px;
+
+        color: #666;
+    }
+
+</style>
+
+</head>
+
+
+<body>
+
+
+<div class="wrapper">
+
+    <div class="canvas-container">
+
+        <canvas id="signatureCanvas"></canvas>
+
+    </div>
+
+
+    <div class="toolbar">
+
+        <button
+            type="button"
+            id="clearButton"
+        >
+            🗑️ Clear
+        </button>
+
+        <span
+            class="status"
+            id="status"
+        >
+            Belum ada tanda tangan
+        </span>
+
+    </div>
+
+</div>
+
+
+<script>
+
+
+// ============================================================
+// STREAMLIT COMPONENT HELPER
+// ============================================================
+
+function sendValue(value) {
+
+    window.parent.postMessage(
+        {
+            isStreamlitMessage: true,
+
+            type: "streamlit:setComponentValue",
+
+            value: value
+        },
+
+        "*"
+    );
+}
+
+
+// ============================================================
+// SET FRAME HEIGHT
+// ============================================================
+
+function setFrameHeight(height) {
+
+    window.parent.postMessage(
+        {
+            isStreamlitMessage: true,
+
+            type: "streamlit:setFrameHeight",
+
+            height: height
+        },
+
+        "*"
+    );
+}
+
+
+// ============================================================
+// ELEMENTS
+// ============================================================
+
+const canvas =
+    document.getElementById(
+        "signatureCanvas"
+    );
+
+
+const clearButton =
+    document.getElementById(
+        "clearButton"
+    );
+
+
+const status =
+    document.getElementById(
+        "status"
+    );
+
+
+const ctx =
+    canvas.getContext("2d");
+
+
+// ============================================================
+// CANVAS CONFIG
+// ============================================================
+
+let drawing = false;
+
+let hasSignature = false;
+
+
+function resizeCanvas() {
+
+    const rect =
+        canvas.getBoundingClientRect();
+
+
+    const ratio =
+        Math.max(
+            window.devicePixelRatio || 1,
+            1
+        );
+
+
+    const oldImage =
+        hasSignature
+            ? canvas.toDataURL("image/png")
+            : null;
+
+
+    canvas.width =
+        rect.width * ratio;
+
+
+    canvas.height =
+        rect.height * ratio;
+
+
+    ctx.setTransform(
+        ratio,
+        0,
+        0,
+        ratio,
+        0,
+        0
+    );
+
+
+    ctx.lineWidth = 2;
+
+    ctx.lineCap = "round";
+
+    ctx.lineJoin = "round";
+
+    ctx.strokeStyle = "#000000";
+
+
+    if (oldImage && hasSignature) {
+
+        const img =
+            new Image();
+
+
+        img.onload = function() {
+
+            ctx.drawImage(
+                img,
+                0,
+                0,
+                rect.width,
+                rect.height
+            );
+        };
+
+
+        img.src = oldImage;
+    }
+}
+
+
+resizeCanvas();
+
+
+window.addEventListener(
+    "resize",
+    resizeCanvas
+);
+
+
+// ============================================================
+// GET POINTER POSITION
+// ============================================================
+
+function getPosition(event) {
+
+    const rect =
+        canvas.getBoundingClientRect();
+
+
+    return {
+
+        x:
+            event.clientX
+            - rect.left,
+
+        y:
+            event.clientY
+            - rect.top
+    };
+}
+
+
+// ============================================================
+// START DRAWING
+// ============================================================
+
+canvas.addEventListener(
+    "pointerdown",
+    function(event) {
+
+        event.preventDefault();
+
+
+        drawing = true;
+
+
+        const pos =
+            getPosition(event);
+
+
+        ctx.beginPath();
+
+        ctx.moveTo(
+            pos.x,
+            pos.y
+        );
+
+
+        canvas.setPointerCapture(
+            event.pointerId
+        );
+    }
+);
+
+
+// ============================================================
+// DRAWING
+// ============================================================
+
+canvas.addEventListener(
+    "pointermove",
+    function(event) {
+
+        if (!drawing) {
+            return;
+        }
+
+
+        event.preventDefault();
+
+
+        const pos =
+            getPosition(event);
+
+
+        ctx.lineTo(
+            pos.x,
+            pos.y
+        );
+
+
+        ctx.stroke();
+
+
+        hasSignature = true;
+
+
+        status.textContent =
+            "Tanda tangan sudah dibuat";
+    }
+);
+
+
+// ============================================================
+// STOP DRAWING
+// ============================================================
+
+function stopDrawing(event) {
+
+    if (!drawing) {
+        return;
+    }
+
+
+    drawing = false;
+
+
+    ctx.closePath();
+
+
+    hasSignature = true;
+
+
+    status.textContent =
+        "Tanda tangan sudah dibuat";
+
+
+    sendValue(
+        canvas.toDataURL(
+            "image/png"
+        )
+    );
+}
+
+
+canvas.addEventListener(
+    "pointerup",
+    stopDrawing
+);
+
+
+canvas.addEventListener(
+    "pointercancel",
+    stopDrawing
+);
+
+
+canvas.addEventListener(
+    "pointerleave",
+    function(event) {
+
+        if (drawing) {
+
+            stopDrawing(event);
+        }
+    }
+);
+
+
+// ============================================================
+// CLEAR
+// ============================================================
+
+clearButton.addEventListener(
+    "click",
+    function() {
+
+        ctx.clearRect(
+            0,
+            0,
+            canvas.width,
+            canvas.height
+        );
+
+
+        hasSignature = false;
+
+
+        status.textContent =
+            "Belum ada tanda tangan";
+
+
+        sendValue("");
+    }
+);
+
+
+// ============================================================
+// INITIAL FRAME HEIGHT
+// ============================================================
+
+setFrameHeight(225);
+
+
+</script>
+
+
+</body>
+
+</html>
