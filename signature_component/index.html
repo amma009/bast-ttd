@@ -1,127 +1,122 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="id">
 
 <head>
 
-<meta charset="UTF-8">
+    <meta charset="UTF-8">
 
-<meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
-/>
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
 
-<title>Signature Pad</title>
-
-
-<style>
-
-    * {
-        box-sizing: border-box;
-    }
+    <title>Signature Pad</title>
 
 
-    html,
-    body {
+    <style>
 
-        margin: 0;
-        padding: 0;
-
-        width: 100%;
-
-        background: transparent;
-
-        font-family:
-            -apple-system,
-            BlinkMacSystemFont,
-            "Segoe UI",
-            sans-serif;
-    }
+        * {
+            box-sizing: border-box;
+        }
 
 
-    .wrapper {
+        html,
+        body {
 
-        width: 100%;
+            margin: 0;
 
-        display: flex;
+            padding: 0;
 
-        flex-direction: column;
+            width: 100%;
 
-        gap: 8px;
-    }
+            background: transparent;
 
-
-    .canvas-container {
-
-        width: 100%;
-
-        border: 1px solid #999;
-
-        border-radius: 8px;
-
-        background: white;
-
-        overflow: hidden;
-    }
+            font-family:
+                Arial,
+                sans-serif;
+        }
 
 
-    canvas {
+        #container {
 
-        display: block;
+            width: 100%;
 
-        width: 100%;
-
-        height: 180px;
-
-        background: white;
-
-        cursor: crosshair;
-
-        touch-action: none;
-    }
+            padding: 0;
+        }
 
 
-    .toolbar {
+        #canvas-wrapper {
 
-        display: flex;
+            width: 100%;
 
-        gap: 8px;
+            background: white;
 
-        align-items: center;
-    }
+            border: 1px solid #999;
 
+            border-radius: 8px;
 
-    button {
-
-        border: 1px solid #bbb;
-
-        background: white;
-
-        color: #222;
-
-        border-radius: 6px;
-
-        padding: 6px 14px;
-
-        font-size: 13px;
-
-        cursor: pointer;
-    }
+            overflow: hidden;
+        }
 
 
-    button:hover {
+        #signature-canvas {
 
-        background: #f2f2f2;
-    }
+            display: block;
+
+            width: 100%;
+
+            height: 180px;
+
+            background: white;
+
+            touch-action: none;
+
+            cursor: crosshair;
+        }
 
 
-    .status {
+        #toolbar {
 
-        font-size: 12px;
+            display: flex;
 
-        color: #666;
-    }
+            align-items: center;
 
-</style>
+            gap: 8px;
+
+            margin-top: 8px;
+        }
+
+
+        #clear-button {
+
+            border: 1px solid #aaa;
+
+            background: white;
+
+            border-radius: 6px;
+
+            padding: 6px 12px;
+
+            font-size: 13px;
+
+            cursor: pointer;
+        }
+
+
+        #clear-button:hover {
+
+            background: #f0f0f0;
+        }
+
+
+        #status {
+
+            font-size: 12px;
+
+            color: #777;
+        }
+
+    </style>
 
 </head>
 
@@ -129,28 +124,28 @@
 <body>
 
 
-<div class="wrapper">
+<div id="container">
 
-    <div class="canvas-container">
+    <div id="canvas-wrapper">
 
-        <canvas id="signatureCanvas"></canvas>
+        <canvas
+            id="signature-canvas"
+        ></canvas>
 
     </div>
 
 
-    <div class="toolbar">
+    <div id="toolbar">
 
         <button
+            id="clear-button"
             type="button"
-            id="clearButton"
         >
             🗑️ Clear
         </button>
 
-        <span
-            class="status"
-            id="status"
-        >
+
+        <span id="status">
             Belum ada tanda tangan
         </span>
 
@@ -163,18 +158,24 @@
 
 
 // ============================================================
-// STREAMLIT COMPONENT HELPER
+// STREAMLIT COMPONENT
 // ============================================================
 
-function sendValue(value) {
+function sendToStreamlit(
+    type,
+    value = null
+) {
 
     window.parent.postMessage(
+
         {
             isStreamlitMessage: true,
 
-            type: "streamlit:setComponentValue",
+            type: type,
 
-            value: value
+            ...(value !== null
+                ? { value: value }
+                : {})
         },
 
         "*"
@@ -183,38 +184,34 @@ function sendValue(value) {
 
 
 // ============================================================
-// SET FRAME HEIGHT
+// TELL STREAMLIT COMPONENT IS READY
 // ============================================================
 
-function setFrameHeight(height) {
-
-    window.parent.postMessage(
-        {
-            isStreamlitMessage: true,
-
-            type: "streamlit:setFrameHeight",
-
-            height: height
-        },
-
-        "*"
-    );
-}
+sendToStreamlit(
+    "streamlit:componentReady",
+    {
+        apiVersion: 1
+    }
+);
 
 
 // ============================================================
-// ELEMENTS
+// ELEMENT
 // ============================================================
 
 const canvas =
     document.getElementById(
-        "signatureCanvas"
+        "signature-canvas"
     );
+
+
+const ctx =
+    canvas.getContext("2d");
 
 
 const clearButton =
     document.getElementById(
-        "clearButton"
+        "clear-button"
     );
 
 
@@ -224,18 +221,22 @@ const status =
     );
 
 
-const ctx =
-    canvas.getContext("2d");
-
-
 // ============================================================
-// CANVAS CONFIG
+// VARIABLES
 // ============================================================
 
 let drawing = false;
 
 let hasSignature = false;
 
+let lastX = 0;
+
+let lastY = 0;
+
+
+// ============================================================
+// CANVAS SIZE
+// ============================================================
 
 function resizeCanvas() {
 
@@ -244,24 +245,19 @@ function resizeCanvas() {
 
 
     const ratio =
-        Math.max(
-            window.devicePixelRatio || 1,
-            1
-        );
-
-
-    const oldImage =
-        hasSignature
-            ? canvas.toDataURL("image/png")
-            : null;
+        window.devicePixelRatio || 1;
 
 
     canvas.width =
-        rect.width * ratio;
+        Math.round(
+            rect.width * ratio
+        );
 
 
     canvas.height =
-        rect.height * ratio;
+        Math.round(
+            rect.height * ratio
+        );
 
 
     ctx.setTransform(
@@ -281,42 +277,14 @@ function resizeCanvas() {
     ctx.lineJoin = "round";
 
     ctx.strokeStyle = "#000000";
-
-
-    if (oldImage && hasSignature) {
-
-        const img =
-            new Image();
-
-
-        img.onload = function() {
-
-            ctx.drawImage(
-                img,
-                0,
-                0,
-                rect.width,
-                rect.height
-            );
-        };
-
-
-        img.src = oldImage;
-    }
 }
 
 
 resizeCanvas();
 
 
-window.addEventListener(
-    "resize",
-    resizeCanvas
-);
-
-
 // ============================================================
-// GET POINTER POSITION
+// GET POSITION
 // ============================================================
 
 function getPosition(event) {
@@ -339,78 +307,106 @@ function getPosition(event) {
 
 
 // ============================================================
-// START DRAWING
+// START
 // ============================================================
 
-canvas.addEventListener(
-    "pointerdown",
-    function(event) {
+function startDrawing(event) {
 
-        event.preventDefault();
+    event.preventDefault();
 
 
-        drawing = true;
+    drawing = true;
 
 
-        const pos =
-            getPosition(event);
+    const position =
+        getPosition(event);
 
 
-        ctx.beginPath();
-
-        ctx.moveTo(
-            pos.x,
-            pos.y
-        );
+    lastX =
+        position.x;
 
 
-        canvas.setPointerCapture(
-            event.pointerId
-        );
+    lastY =
+        position.y;
+
+
+    canvas.setPointerCapture(
+        event.pointerId
+    );
+
+
+    // Titik awal
+    ctx.beginPath();
+
+    ctx.arc(
+        lastX,
+        lastY,
+        1,
+        0,
+        Math.PI * 2
+    );
+
+    ctx.fillStyle =
+        "#000000";
+
+    ctx.fill();
+}
+
+
+// ============================================================
+// DRAW
+// ============================================================
+
+function draw(event) {
+
+    if (!drawing) {
+        return;
     }
-);
+
+
+    event.preventDefault();
+
+
+    const position =
+        getPosition(event);
+
+
+    ctx.beginPath();
+
+
+    ctx.moveTo(
+        lastX,
+        lastY
+    );
+
+
+    ctx.lineTo(
+        position.x,
+        position.y
+    );
+
+
+    ctx.stroke();
+
+
+    lastX =
+        position.x;
+
+
+    lastY =
+        position.y;
+
+
+    hasSignature = true;
+
+
+    status.textContent =
+        "Tanda tangan sudah dibuat";
+}
 
 
 // ============================================================
-// DRAWING
-// ============================================================
-
-canvas.addEventListener(
-    "pointermove",
-    function(event) {
-
-        if (!drawing) {
-            return;
-        }
-
-
-        event.preventDefault();
-
-
-        const pos =
-            getPosition(event);
-
-
-        ctx.lineTo(
-            pos.x,
-            pos.y
-        );
-
-
-        ctx.stroke();
-
-
-        hasSignature = true;
-
-
-        status.textContent =
-            "Tanda tangan sudah dibuat";
-    }
-);
-
-
-// ============================================================
-// STOP DRAWING
+// END
 // ============================================================
 
 function stopDrawing(event) {
@@ -420,25 +416,56 @@ function stopDrawing(event) {
     }
 
 
+    event.preventDefault();
+
+
     drawing = false;
 
 
-    ctx.closePath();
+    try {
+
+        canvas.releasePointerCapture(
+            event.pointerId
+        );
+
+    } catch (error) {
+        // ignore
+    }
 
 
-    hasSignature = true;
+    if (!hasSignature) {
+        return;
+    }
 
 
-    status.textContent =
-        "Tanda tangan sudah dibuat";
-
-
-    sendValue(
+    const imageData =
         canvas.toDataURL(
             "image/png"
-        )
+        );
+
+
+    // Kirim hasil canvas ke Python
+    sendToStreamlit(
+        "streamlit:setComponentValue",
+        imageData
     );
 }
+
+
+// ============================================================
+// POINTER EVENTS
+// ============================================================
+
+canvas.addEventListener(
+    "pointerdown",
+    startDrawing
+);
+
+
+canvas.addEventListener(
+    "pointermove",
+    draw
+);
 
 
 canvas.addEventListener(
@@ -453,25 +480,16 @@ canvas.addEventListener(
 );
 
 
-canvas.addEventListener(
-    "pointerleave",
-    function(event) {
-
-        if (drawing) {
-
-            stopDrawing(event);
-        }
-    }
-);
-
-
 // ============================================================
 // CLEAR
 // ============================================================
 
 clearButton.addEventListener(
     "click",
-    function() {
+    function(event) {
+
+        event.preventDefault();
+
 
         ctx.clearRect(
             0,
@@ -488,7 +506,39 @@ clearButton.addEventListener(
             "Belum ada tanda tangan";
 
 
-        sendValue("");
+        // Kirim nilai kosong
+        // ke Python
+        sendToStreamlit(
+            "streamlit:setComponentValue",
+            ""
+        );
+    }
+);
+
+
+// ============================================================
+// STREAMLIT RENDER EVENT
+// ============================================================
+
+window.addEventListener(
+    "message",
+    function(event) {
+
+        if (
+            !event.data
+            || event.data.type
+                !== "streamlit:render"
+        ) {
+
+            return;
+        }
+
+
+        // Beri tahu tinggi iframe
+        sendToStreamlit(
+            "streamlit:setFrameHeight",
+            225
+        );
     }
 );
 
@@ -497,11 +547,26 @@ clearButton.addEventListener(
 // INITIAL FRAME HEIGHT
 // ============================================================
 
-setFrameHeight(225);
+sendToStreamlit(
+    "streamlit:setFrameHeight",
+    225
+);
+
+
+// ============================================================
+// RESIZE
+// ============================================================
+
+window.addEventListener(
+    "resize",
+    function() {
+
+        resizeCanvas();
+    }
+);
 
 
 </script>
-
 
 </body>
 
