@@ -25,7 +25,7 @@ from reportlab.pdfgen import canvas
 
 
 # =========================================================
-# CONFIG
+# STREAMLIT CONFIG
 # =========================================================
 
 st.set_page_config(
@@ -36,14 +36,34 @@ st.set_page_config(
 
 
 # =========================================================
-# IMPORT SIGNATURE COMPONENT
+# SIGNATURE COMPONENT
 # =========================================================
 
 from signature_component import signature_pad
 
 
 # =========================================================
-# HELPER
+# CONFIG PDF
+# =========================================================
+
+PAGE_WIDTH, PAGE_HEIGHT = A4
+
+MARGIN_LEFT = 5 * mm
+MARGIN_RIGHT = 5 * mm
+MARGIN_TOP = 5 * mm
+MARGIN_BOTTOM = 8 * mm
+
+TOTAL_CONTENT_WIDTH = (
+    PAGE_WIDTH
+    - MARGIN_LEFT
+    - MARGIN_RIGHT
+)
+
+HALF_WIDTH = TOTAL_CONTENT_WIDTH / 2
+
+
+# =========================================================
+# REQUIRED COLUMNS
 # =========================================================
 
 REQUIRED_COLUMNS = [
@@ -55,25 +75,28 @@ REQUIRED_COLUMNS = [
 ]
 
 
+# =========================================================
+# HELPER
+# =========================================================
+
 def safe_filename(text):
     text = str(text).strip()
 
     if not text:
         text = "BAST"
 
-    text = re.sub(r'[\\/*?:"<>|]', "_", text)
+    text = re.sub(
+        r'[\\/*?:"<>|]',
+        "_",
+        text,
+    )
 
     return text
 
 
 def parse_paste_data(text):
     """
-    Parse data hasil copy dari Excel.
-
-    Prioritas:
-    1. TSV / tab
-    2. CSV
-    3. auto python engine
+    Membaca data hasil copy dari Excel.
     """
 
     if not text or not text.strip():
@@ -81,8 +104,12 @@ def parse_paste_data(text):
 
     text = text.strip()
 
-    # Coba TSV
+    # -----------------------------------------------------
+    # TSV
+    # -----------------------------------------------------
+
     try:
+
         df = pd.read_csv(
             io.StringIO(text),
             sep="\t",
@@ -92,11 +119,16 @@ def parse_paste_data(text):
 
         if len(df.columns) > 1:
             return df
+
     except Exception:
         pass
 
-    # Coba CSV
+    # -----------------------------------------------------
+    # CSV
+    # -----------------------------------------------------
+
     try:
+
         df = pd.read_csv(
             io.StringIO(text),
             dtype=str,
@@ -105,11 +137,16 @@ def parse_paste_data(text):
 
         if len(df.columns) > 1:
             return df
+
     except Exception:
         pass
 
-    # Coba python engine
+    # -----------------------------------------------------
+    # AUTO
+    # -----------------------------------------------------
+
     try:
+
         df = pd.read_csv(
             io.StringIO(text),
             sep=None,
@@ -121,13 +158,11 @@ def parse_paste_data(text):
         return df
 
     except Exception:
+
         return pd.DataFrame()
 
 
 def fix_broken_rows(df):
-    """
-    Membersihkan data hasil paste Excel.
-    """
 
     if df.empty:
         return df
@@ -140,7 +175,7 @@ def fix_broken_rows(df):
         for col in df.columns
     ]
 
-    # Buang kolom Unnamed
+    # Buang Unnamed
     df = df.loc[
         :,
         ~df.columns.str.contains(
@@ -150,41 +185,63 @@ def fix_broken_rows(df):
         )
     ]
 
-    # Pastikan kolom wajib ada
+    # Pastikan semua kolom ada
     for col in REQUIRED_COLUMNS:
+
         if col not in df.columns:
             df[col] = ""
 
-    # Hanya ambil kolom yang diperlukan
-    df = df[REQUIRED_COLUMNS].copy()
+    # Ambil hanya kolom yang digunakan
+    df = df[
+        REQUIRED_COLUMNS
+    ].copy()
 
-    # Bersihkan whitespace
+    # Bersihkan isi
     for col in df.columns:
+
         df[col] = (
             df[col]
             .astype(str)
-            .str.replace("\n", " ", regex=False)
-            .str.replace("\r", " ", regex=False)
+            .str.replace(
+                "\n",
+                " ",
+                regex=False,
+            )
+            .str.replace(
+                "\r",
+                " ",
+                regex=False,
+            )
             .str.strip()
         )
 
-    # NO jika kosong → isi berdasarkan urutan
+    # Isi NO yang kosong
     for idx in df.index:
-        if not str(df.at[idx, "NO"]).strip():
-            df.at[idx, "NO"] = str(idx + 1)
 
-    # KOLI QTY numeric
+        if not str(
+            df.at[idx, "NO"]
+        ).strip():
+
+            df.at[idx, "NO"] = str(
+                idx + 1
+            )
+
+    # KOLI QTY
     df["KOLI QTY"] = pd.to_numeric(
         df["KOLI QTY"],
         errors="coerce",
     ).fillna(0)
 
-    df["KOLI QTY"] = df["KOLI QTY"].astype(int)
+    df["KOLI QTY"] = (
+        df["KOLI QTY"]
+        .astype(int)
+    )
 
     return df
 
 
 def validate_file(df):
+
     if df.empty:
         return False, "Data kosong."
 
@@ -195,6 +252,7 @@ def validate_file(df):
     ]
 
     if missing:
+
         return False, (
             "Kolom berikut belum ada: "
             + ", ".join(missing)
@@ -204,53 +262,62 @@ def validate_file(df):
 
 
 # =========================================================
-# SIGNATURE
+# SIGNATURE HELPER
 # =========================================================
 
 def signature_exists(signature):
-    """
-    Mengecek apakah signature dari canvas ada.
-    """
 
     if not signature:
         return False
 
     if isinstance(signature, str):
-        return len(signature.strip()) > 30
+
+        return (
+            len(signature.strip())
+            > 30
+        )
 
     return True
 
 
 def signature_to_bytes(signature):
-    """
-    Convert base64 signature menjadi bytes.
-    """
 
     if not signature:
         return None
 
     try:
+
         if isinstance(signature, str):
 
-            # format:
-            # data:image/png;base64,xxxx
             if "," in signature:
-                signature = signature.split(",", 1)[1]
 
-            return base64.b64decode(signature)
+                signature = (
+                    signature.split(
+                        ",",
+                        1,
+                    )[1]
+                )
+
+            return base64.b64decode(
+                signature
+            )
 
     except Exception:
+
         return None
 
     return None
 
 
-def make_signature_image(signature, width=35 * mm, height=15 * mm):
-    """
-    Membuat ReportLab Image dari signature canvas.
-    """
+def make_signature_image(
+    signature,
+    width=34 * mm,
+    height=13 * mm,
+):
 
-    data = signature_to_bytes(signature)
+    data = signature_to_bytes(
+        signature
+    )
 
     if not data:
         return None
@@ -267,79 +334,194 @@ def make_signature_image(signature, width=35 * mm, height=15 * mm):
 
 
 # =========================================================
-# PAGE NUMBER CANVAS
+# PAGE NUMBER
 # =========================================================
 
 class NumberedCanvas(canvas.Canvas):
 
-    def __init__(self, *args, **kwargs):
-        canvas.Canvas.__init__(self, *args, **kwargs)
+    def __init__(
+        self,
+        *args,
+        **kwargs,
+    ):
+
+        canvas.Canvas.__init__(
+            self,
+            *args,
+            **kwargs,
+        )
 
         self._saved_page_states = []
 
     def showPage(self):
-        self._saved_page_states.append(dict(self.__dict__))
+
+        self._saved_page_states.append(
+            dict(self.__dict__)
+        )
 
         self._startPage()
 
     def save(self):
-        num_pages = len(self._saved_page_states)
 
-        for state in self._saved_page_states:
+        total_pages = len(
+            self._saved_page_states
+        )
 
-            self.__dict__.update(state)
+        for state in (
+            self._saved_page_states
+        ):
 
-            self.draw_page_number(num_pages)
+            self.__dict__.update(
+                state
+            )
 
-            canvas.Canvas.showPage(self)
+            self.draw_page_footer(
+                total_pages
+            )
+
+            canvas.Canvas.showPage(
+                self
+            )
 
         canvas.Canvas.save(self)
 
-    def draw_page_number(self, page_count):
+    def draw_page_footer(
+        self,
+        total_pages,
+    ):
 
-        page_number = self._pageNumber
+        page_number = (
+            self._pageNumber
+        )
 
         self.saveState()
 
-        self.setFont("Helvetica", 6.5)
+        # Garis footer
+        self.setStrokeColor(
+            colors.HexColor(
+                "#D0D0D0"
+            )
+        )
 
-        self.setFillColor(colors.grey)
+        self.setLineWidth(0.3)
 
-        text = f"Page {page_number} / {page_count}"
+        self.line(
+            MARGIN_LEFT,
+            6 * mm,
+            PAGE_WIDTH
+            - MARGIN_RIGHT,
+            6 * mm,
+        )
 
-        self.drawCentredString(
-            A4[0] / 2,
-            4 * mm,
-            text,
+        self.setFont(
+            "Helvetica",
+            5.5,
+        )
+
+        self.setFillColor(
+            colors.HexColor(
+                "#666666"
+            )
+        )
+
+        self.drawString(
+            MARGIN_LEFT,
+            3.5 * mm,
+            "BAST - Berita Acara Serah Terima",
+        )
+
+        self.drawRightString(
+            PAGE_WIDTH
+            - MARGIN_RIGHT,
+            3.5 * mm,
+            f"Halaman {page_number} / {total_pages}",
         )
 
         self.restoreState()
 
 
 # =========================================================
-# REPORTLAB STYLES
+# PDF STYLES
 # =========================================================
 
 styles = getSampleStyleSheet()
 
 
-STYLE_HEADER = ParagraphStyle(
-    "Header",
+STYLE_TITLE = ParagraphStyle(
+    "BASTTitle",
     parent=styles["Normal"],
     fontName="Helvetica-Bold",
-    fontSize=9,
-    leading=10,
+    fontSize=10.5,
+    leading=11,
     alignment=TA_CENTER,
+    textColor=colors.HexColor(
+        "#1F2937"
+    ),
 )
 
 
-STYLE_HEADER_SMALL = ParagraphStyle(
-    "HeaderSmall",
+STYLE_SUBTITLE = ParagraphStyle(
+    "BASTSubtitle",
     parent=styles["Normal"],
     fontName="Helvetica",
-    fontSize=6.5,
-    leading=7.5,
+    fontSize=5.5,
+    leading=6,
+    alignment=TA_CENTER,
+    textColor=colors.HexColor(
+        "#6B7280"
+    ),
+)
+
+
+STYLE_INFO_LABEL = ParagraphStyle(
+    "InfoLabel",
+    parent=styles["Normal"],
+    fontName="Helvetica-Bold",
+    fontSize=5.2,
+    leading=5.8,
     alignment=TA_LEFT,
+    textColor=colors.HexColor(
+        "#4B5563"
+    ),
+)
+
+
+STYLE_INFO_VALUE = ParagraphStyle(
+    "InfoValue",
+    parent=styles["Normal"],
+    fontName="Helvetica",
+    fontSize=5.5,
+    leading=6,
+    alignment=TA_LEFT,
+    textColor=colors.HexColor(
+        "#111827"
+    ),
+)
+
+
+STYLE_STAT_LABEL = ParagraphStyle(
+    "StatLabel",
+    parent=styles["Normal"],
+    fontName="Helvetica",
+    fontSize=5,
+    leading=5.5,
+    alignment=TA_CENTER,
+    textColor=colors.HexColor(
+        "#6B7280"
+    ),
+)
+
+
+STYLE_STAT_VALUE = ParagraphStyle(
+    "StatValue",
+    parent=styles["Normal"],
+    fontName="Helvetica-Bold",
+    fontSize=9,
+    leading=9.5,
+    alignment=TA_CENTER,
+    textColor=colors.HexColor(
+        "#111827"
+    ),
 )
 
 
@@ -347,36 +529,43 @@ STYLE_TABLE_HEADER = ParagraphStyle(
     "TableHeader",
     parent=styles["Normal"],
     fontName="Helvetica-Bold",
-    fontSize=4.6,
-    leading=5,
+    fontSize=4.5,
+    leading=4.8,
     alignment=TA_CENTER,
+    textColor=colors.white,
 )
 
 
 STYLE_TABLE = ParagraphStyle(
-    "Table",
+    "TableBody",
     parent=styles["Normal"],
     fontName="Helvetica",
-    fontSize=4.5,
-    leading=4.8,
+    fontSize=4.35,
+    leading=4.55,
     alignment=TA_LEFT,
+    textColor=colors.HexColor(
+        "#111827"
+    ),
 )
 
 
 STYLE_TABLE_CENTER = ParagraphStyle(
-    "TableCenter",
+    "TableBodyCenter",
     parent=STYLE_TABLE,
     alignment=TA_CENTER,
 )
 
 
-STYLE_SIGNATURE = ParagraphStyle(
-    "Signature",
+STYLE_SIGNATURE_TITLE = ParagraphStyle(
+    "SignatureTitle",
     parent=styles["Normal"],
-    fontName="Helvetica",
-    fontSize=5.5,
-    leading=6.5,
+    fontName="Helvetica-Bold",
+    fontSize=5.4,
+    leading=6,
     alignment=TA_CENTER,
+    textColor=colors.HexColor(
+        "#374151"
+    ),
 )
 
 
@@ -384,14 +573,30 @@ STYLE_SIGNATURE_NAME = ParagraphStyle(
     "SignatureName",
     parent=styles["Normal"],
     fontName="Helvetica-Bold",
-    fontSize=6,
-    leading=7,
+    fontSize=5.7,
+    leading=6.2,
     alignment=TA_CENTER,
+    textColor=colors.HexColor(
+        "#111827"
+    ),
+)
+
+
+STYLE_SIGNATURE_ROLE = ParagraphStyle(
+    "SignatureRole",
+    parent=styles["Normal"],
+    fontName="Helvetica",
+    fontSize=4.8,
+    leading=5.2,
+    alignment=TA_CENTER,
+    textColor=colors.HexColor(
+        "#6B7280"
+    ),
 )
 
 
 # =========================================================
-# HEADER PDF
+# HEADER
 # =========================================================
 
 def create_header(
@@ -404,148 +609,158 @@ def create_header(
     total_resi,
     total_koli,
 ):
-    """
-    Header compact.
-    """
+
+    # -----------------------------------------------------
+    # TITLE
+    # -----------------------------------------------------
 
     title = Paragraph(
-        "BERITA ACARA SERAH TERIMA (BAST)",
-        STYLE_HEADER,
+        "BERITA ACARA SERAH TERIMA",
+        STYLE_TITLE,
     )
 
-    data_left = [
-        [
-            Paragraph("<b>Tanggal</b>", STYLE_HEADER_SMALL),
-            Paragraph(str(tanggal), STYLE_HEADER_SMALL),
-        ],
-        [
-            Paragraph("<b>Warehouse</b>", STYLE_HEADER_SMALL),
-            Paragraph(str(warehouse), STYLE_HEADER_SMALL),
-        ],
-        [
-            Paragraph("<b>Courier</b>", STYLE_HEADER_SMALL),
-            Paragraph(str(courier), STYLE_HEADER_SMALL),
-        ],
-    ]
+    subtitle = Paragraph(
+        "Dokumen Serah Terima Pengiriman",
+        STYLE_SUBTITLE,
+    )
 
-    data_middle = [
-        [
-            Paragraph("<b>Waktu</b>", STYLE_HEADER_SMALL),
-            Paragraph(str(waktu), STYLE_HEADER_SMALL),
-        ],
-        [
-            Paragraph("<b>Driver</b>", STYLE_HEADER_SMALL),
-            Paragraph(str(driver), STYLE_HEADER_SMALL),
-        ],
-        [
-            Paragraph("<b>Police</b>", STYLE_HEADER_SMALL),
-            Paragraph(str(police), STYLE_HEADER_SMALL),
-        ],
-    ]
+    # -----------------------------------------------------
+    # INFORMATION
+    # -----------------------------------------------------
 
-    data_right = [
-        [
-            Paragraph("<b>Jumlah Resi</b>", STYLE_HEADER_SMALL),
+    def info_row(
+        label,
+        value,
+    ):
+
+        return [
             Paragraph(
-                f"<b>{total_resi}</b>",
-                STYLE_HEADER_SMALL,
+                label,
+                STYLE_INFO_LABEL,
+            ),
+            Paragraph(
+                html.escape(
+                    str(value)
+                ),
+                STYLE_INFO_VALUE,
+            ),
+        ]
+
+    info_left = Table(
+        [
+            info_row(
+                "Tanggal",
+                tanggal,
+            ),
+            info_row(
+                "Warehouse",
+                warehouse,
+            ),
+            info_row(
+                "Courier",
+                courier,
             ),
         ],
+        colWidths=[
+            20 * mm,
+            42 * mm,
+        ],
+    )
+
+    info_middle = Table(
         [
-            Paragraph("<b>Jumlah Koli</b>", STYLE_HEADER_SMALL),
-            Paragraph(
-                f"<b>{total_koli}</b>",
-                STYLE_HEADER_SMALL,
+            info_row(
+                "Waktu",
+                waktu,
+            ),
+            info_row(
+                "Driver",
+                driver,
+            ),
+            info_row(
+                "Police",
+                police,
             ),
         ],
-        [
-            Paragraph("<b>Status</b>", STYLE_HEADER_SMALL),
-            Paragraph(
-                "READY",
-                STYLE_HEADER_SMALL,
-            ),
+        colWidths=[
+            18 * mm,
+            44 * mm,
         ],
-    ]
+    )
 
-    def small_info_table(data):
+    # -----------------------------------------------------
+    # STATISTICS
+    # -----------------------------------------------------
 
-        table = Table(
-            data,
-            colWidths=[
-                25 * mm,
-                35 * mm,
-            ],
-        )
-
-        table.setStyle(
-            TableStyle(
-                [
-                    (
-                        "VALIGN",
-                        (0, 0),
-                        (-1, -1),
-                        "MIDDLE",
-                    ),
-                    (
-                        "LEFTPADDING",
-                        (0, 0),
-                        (-1, -1),
-                        1,
-                    ),
-                    (
-                        "RIGHTPADDING",
-                        (0, 0),
-                        (-1, -1),
-                        1,
-                    ),
-                    (
-                        "TOPPADDING",
-                        (0, 0),
-                        (-1, -1),
-                        1,
-                    ),
-                    (
-                        "BOTTOMPADDING",
-                        (0, 0),
-                        (-1, -1),
-                        1,
-                    ),
-                    (
-                        "GRID",
-                        (0, 0),
-                        (-1, -1),
-                        0.25,
-                        colors.grey,
-                    ),
-                ]
-            )
-        )
-
-        return table
-
-    info_table = Table(
+    stat_resi = Table(
         [
             [
-                small_info_table(data_left),
-                small_info_table(data_middle),
-                small_info_table(data_right),
+                Paragraph(
+                    "JUMLAH RESI",
+                    STYLE_STAT_LABEL,
+                )
+            ],
+            [
+                Paragraph(
+                    str(total_resi),
+                    STYLE_STAT_VALUE,
+                )
+            ],
+        ],
+        colWidths=[
+            27 * mm
+        ],
+        rowHeights=[
+            5 * mm,
+            7 * mm,
+        ],
+    )
+
+    stat_koli = Table(
+        [
+            [
+                Paragraph(
+                    "JUMLAH KOLI",
+                    STYLE_STAT_LABEL,
+                )
+            ],
+            [
+                Paragraph(
+                    str(total_koli),
+                    STYLE_STAT_VALUE,
+                )
+            ],
+        ],
+        colWidths=[
+            27 * mm
+        ],
+        rowHeights=[
+            5 * mm,
+            7 * mm,
+        ],
+    )
+
+    stats = Table(
+        [
+            [
+                stat_resi,
+                stat_koli,
             ]
         ],
         colWidths=[
-            65 * mm,
-            65 * mm,
-            65 * mm,
+            30 * mm,
+            30 * mm,
         ],
     )
 
-    info_table.setStyle(
+    stats.setStyle(
         TableStyle(
             [
                 (
                     "VALIGN",
                     (0, 0),
                     (-1, -1),
-                    "TOP",
+                    "MIDDLE",
                 ),
                 (
                     "LEFTPADDING",
@@ -563,13 +778,95 @@ def create_header(
                     "TOPPADDING",
                     (0, 0),
                     (-1, -1),
-                    0,
+                    1,
                 ),
                 (
                     "BOTTOMPADDING",
                     (0, 0),
                     (-1, -1),
-                    0,
+                    1,
+                ),
+            ]
+        )
+    )
+
+    # -----------------------------------------------------
+    # HEADER CONTAINER
+    # -----------------------------------------------------
+
+    header_info = Table(
+        [
+            [
+                info_left,
+                info_middle,
+                stats,
+            ]
+        ],
+        colWidths=[
+            65 * mm,
+            65 * mm,
+            65 * mm,
+        ],
+    )
+
+    header_info.setStyle(
+        TableStyle(
+            [
+                (
+                    "BOX",
+                    (0, 0),
+                    (-1, -1),
+                    0.6,
+                    colors.HexColor(
+                        "#CBD5E1"
+                    ),
+                ),
+                (
+                    "INNERGRID",
+                    (0, 0),
+                    (-1, -1),
+                    0.25,
+                    colors.HexColor(
+                        "#E5E7EB"
+                    ),
+                ),
+                (
+                    "BACKGROUND",
+                    (2, 0),
+                    (2, 0),
+                    colors.HexColor(
+                        "#F8FAFC"
+                    ),
+                ),
+                (
+                    "VALIGN",
+                    (0, 0),
+                    (-1, -1),
+                    "MIDDLE",
+                ),
+                (
+                    "LEFTPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    2,
+                ),
+                (
+                    "RIGHTPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    2,
+                ),
+                (
+                    "TOPPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    1.5,
+                ),
+                (
+                    "BOTTOMPADDING",
+                    (0, 0),
+                    (-1, -1),
+                    1.5,
                 ),
             ]
         )
@@ -577,35 +874,57 @@ def create_header(
 
     return [
         title,
+        subtitle,
         Spacer(1, 1.5 * mm),
-        info_table,
-        Spacer(1, 2 * mm),
+        header_info,
+        Spacer(1, 1.8 * mm),
     ]
 
 
 # =========================================================
-# DATA TABLE
+# SINGLE DATA TABLE
 # =========================================================
 
-def create_single_data_table(df_part):
-    """
-    Membuat SATU tabel 50 baris.
-    """
+def create_single_data_table(
+    df_part,
+    start_number=1,
+):
 
-    table_data = []
+    data = []
 
-    # Header
-    table_data.append(
+    # -----------------------------------------------------
+    # HEADER
+    # -----------------------------------------------------
+
+    data.append(
         [
-            Paragraph("NO", STYLE_TABLE_HEADER),
-            Paragraph("DELIVERY<br/>ORDER", STYLE_TABLE_HEADER),
-            Paragraph("AIRWAYBILL", STYLE_TABLE_HEADER),
-            Paragraph("PROVIDER", STYLE_TABLE_HEADER),
-            Paragraph("KOLI<br/>QTY", STYLE_TABLE_HEADER),
+            Paragraph(
+                "NO",
+                STYLE_TABLE_HEADER,
+            ),
+            Paragraph(
+                "DELIVERY<br/>ORDER",
+                STYLE_TABLE_HEADER,
+            ),
+            Paragraph(
+                "AIRWAYBILL",
+                STYLE_TABLE_HEADER,
+            ),
+            Paragraph(
+                "PROVIDER",
+                STYLE_TABLE_HEADER,
+            ),
+            Paragraph(
+                "KOLI<br/>QTY",
+                STYLE_TABLE_HEADER,
+            ),
         ]
     )
 
-    # 50 rows
+    # -----------------------------------------------------
+    # 50 ROWS
+    # -----------------------------------------------------
+
     for i in range(50):
 
         if i < len(df_part):
@@ -617,19 +936,35 @@ def create_single_data_table(df_part):
             )
 
             delivery_order = html.escape(
-                str(row["DELIVERY ORDER"])
+                str(
+                    row[
+                        "DELIVERY ORDER"
+                    ]
+                )
             )
 
             airwaybill = html.escape(
-                str(row["AIRWAYBILL"])
+                str(
+                    row[
+                        "AIRWAYBILL"
+                    ]
+                )
             )
 
             provider = html.escape(
-                str(row["PROVIDER"])
+                str(
+                    row[
+                        "PROVIDER"
+                    ]
+                )
             )
 
             koli = html.escape(
-                str(row["KOLI QTY"])
+                str(
+                    row[
+                        "KOLI QTY"
+                    ]
+                )
             )
 
         else:
@@ -640,9 +975,12 @@ def create_single_data_table(df_part):
             provider = ""
             koli = ""
 
-        table_data.append(
+        data.append(
             [
-                Paragraph(no, STYLE_TABLE_CENTER),
+                Paragraph(
+                    no,
+                    STYLE_TABLE_CENTER,
+                ),
                 Paragraph(
                     delivery_order,
                     STYLE_TABLE,
@@ -662,102 +1000,172 @@ def create_single_data_table(df_part):
             ]
         )
 
-    # Lebar total sekitar 96 mm
+    # -----------------------------------------------------
+    # WIDTH
+    # -----------------------------------------------------
+
     col_widths = [
-        7 * mm,    # NO
-        25 * mm,   # DO
-        32 * mm,   # AWB
-        23 * mm,   # Provider
-        9 * mm,    # Koli
+        7 * mm,
+        25 * mm,
+        32 * mm,
+        23 * mm,
+        9 * mm,
     ]
 
-    # Header + 50 rows
-    row_heights = [
-        6 * mm
-    ] + [
-        4.25 * mm
-    ] * 50
+    # 1 header + 50 rows
+    row_heights = (
+        [5.5 * mm]
+        + [4.25 * mm] * 50
+    )
 
     table = Table(
-        table_data,
+        data,
         colWidths=col_widths,
         rowHeights=row_heights,
+        repeatRows=1,
     )
+
+    # -----------------------------------------------------
+    # STYLE
+    # -----------------------------------------------------
+
+    table_style = [
+        # Outer border
+        (
+            "BOX",
+            (0, 0),
+            (-1, -1),
+            0.6,
+            colors.HexColor(
+                "#64748B"
+            ),
+        ),
+
+        # Grid
+        (
+            "GRID",
+            (0, 0),
+            (-1, -1),
+            0.25,
+            colors.HexColor(
+                "#CBD5E1"
+            ),
+        ),
+
+        # Header
+        (
+            "BACKGROUND",
+            (0, 0),
+            (-1, 0),
+            colors.HexColor(
+                "#334155"
+            ),
+        ),
+
+        (
+            "VALIGN",
+            (0, 0),
+            (-1, -1),
+            "MIDDLE",
+        ),
+
+        # Alignment
+        (
+            "ALIGN",
+            (0, 0),
+            (0, -1),
+            "CENTER",
+        ),
+
+        (
+            "ALIGN",
+            (4, 0),
+            (4, -1),
+            "CENTER",
+        ),
+
+        (
+            "ALIGN",
+            (0, 0),
+            (-1, 0),
+            "CENTER",
+        ),
+
+        # Padding
+        (
+            "LEFTPADDING",
+            (0, 0),
+            (-1, -1),
+            0.7,
+        ),
+
+        (
+            "RIGHTPADDING",
+            (0, 0),
+            (-1, -1),
+            0.7,
+        ),
+
+        (
+            "TOPPADDING",
+            (0, 0),
+            (-1, -1),
+            0.2,
+        ),
+
+        (
+            "BOTTOMPADDING",
+            (0, 0),
+            (-1, -1),
+            0.2,
+        ),
+    ]
+
+    # -----------------------------------------------------
+    # ALTERNATING ROW
+    # -----------------------------------------------------
+
+    for row_index in range(
+        1,
+        51,
+    ):
+
+        if row_index % 2 == 0:
+
+            table_style.append(
+                (
+                    "BACKGROUND",
+                    (0, row_index),
+                    (-1, row_index),
+                    colors.HexColor(
+                        "#F8FAFC"
+                    ),
+                )
+            )
+
+    # -----------------------------------------------------
+    # BLANK ROWS
+    # -----------------------------------------------------
+
+    for row_index in range(
+        len(df_part) + 1,
+        51,
+    ):
+
+        table_style.append(
+            (
+                "TEXTCOLOR",
+                (0, row_index),
+                (-1, row_index),
+                colors.HexColor(
+                    "#CBD5E1"
+                ),
+            )
+        )
 
     table.setStyle(
         TableStyle(
-            [
-                # GRID
-                (
-                    "GRID",
-                    (0, 0),
-                    (-1, -1),
-                    0.25,
-                    colors.grey,
-                ),
-
-                # Header
-                (
-                    "BACKGROUND",
-                    (0, 0),
-                    (-1, 0),
-                    colors.HexColor("#EDEDED"),
-                ),
-
-                (
-                    "ALIGN",
-                    (0, 0),
-                    (-1, 0),
-                    "CENTER",
-                ),
-
-                (
-                    "VALIGN",
-                    (0, 0),
-                    (-1, -1),
-                    "MIDDLE",
-                ),
-
-                # Padding compact
-                (
-                    "LEFTPADDING",
-                    (0, 0),
-                    (-1, -1),
-                    0.8,
-                ),
-                (
-                    "RIGHTPADDING",
-                    (0, 0),
-                    (-1, -1),
-                    0.8,
-                ),
-                (
-                    "TOPPADDING",
-                    (0, 0),
-                    (-1, -1),
-                    0.3,
-                ),
-                (
-                    "BOTTOMPADDING",
-                    (0, 0),
-                    (-1, -1),
-                    0.3,
-                ),
-
-                # Center columns
-                (
-                    "ALIGN",
-                    (0, 1),
-                    (0, -1),
-                    "CENTER",
-                ),
-                (
-                    "ALIGN",
-                    (4, 1),
-                    (4, -1),
-                    "CENTER",
-                ),
-            ]
+            table_style
         )
     )
 
@@ -772,22 +1180,36 @@ def create_side_by_side_table(
     left_df,
     right_df,
 ):
-    """
-    Membuat:
 
-    ┌───────────────┬───────────────┐
-    │   1 - 50      │   51 - 100    │
-    │   LEFT        │   RIGHT       │
-    └───────────────┴───────────────┘
-    """
-
-    left_table = create_single_data_table(
-        left_df
+    left_table = (
+        create_single_data_table(
+            left_df,
+        )
     )
 
-    right_table = create_single_data_table(
-        right_df
+    right_table = (
+        create_single_data_table(
+            right_df,
+        )
     )
+
+    # Label kiri / kanan
+    left_title = Paragraph(
+        f"RESI {left_df.iloc[0]['NO'] if len(left_df) else ''}"
+        f" - "
+        f"{left_df.iloc[-1]['NO'] if len(left_df) else ''}",
+        STYLE_TABLE_HEADER,
+    )
+
+    right_title = Paragraph(
+        f"RESI {right_df.iloc[0]['NO'] if len(right_df) else ''}"
+        f" - "
+        f"{right_df.iloc[-1]['NO'] if len(right_df) else ''}",
+        STYLE_TABLE_HEADER,
+    )
+
+    # Jangan pakai title terpisah supaya tinggi tidak bertambah.
+    # Table langsung ditempatkan berdampingan.
 
     outer = Table(
         [
@@ -840,13 +1262,15 @@ def create_side_by_side_table(
                     0,
                 ),
 
-                # garis pemisah tengah
+                # Separator tengah
                 (
                     "LINEAFTER",
                     (0, 0),
                     (0, 0),
-                    0.5,
-                    colors.black,
+                    0.7,
+                    colors.HexColor(
+                        "#475569"
+                    ),
                 ),
             ]
         )
@@ -856,114 +1280,129 @@ def create_side_by_side_table(
 
 
 # =========================================================
-# SIGNATURE TABLE
+# SIGNATURE
 # =========================================================
 
 def create_signature_table(
     security_signature,
     dispatcher_signature,
     driver_signature,
+
     security_name,
     dispatcher_name,
     driver_name,
 ):
-    """
-    3 signature berdampingan.
-    """
 
-    img_security = make_signature_image(
-        security_signature,
-        width=32 * mm,
-        height=12 * mm,
+    security_image = (
+        make_signature_image(
+            security_signature,
+            width=31 * mm,
+            height=12 * mm,
+        )
     )
 
-    img_dispatcher = make_signature_image(
-        dispatcher_signature,
-        width=32 * mm,
-        height=12 * mm,
+    dispatcher_image = (
+        make_signature_image(
+            dispatcher_signature,
+            width=31 * mm,
+            height=12 * mm,
+        )
     )
 
-    img_driver = make_signature_image(
-        driver_signature,
-        width=32 * mm,
-        height=12 * mm,
+    driver_image = (
+        make_signature_image(
+            driver_signature,
+            width=31 * mm,
+            height=12 * mm,
+        )
     )
 
-    def signature_content(
-        title,
-        image,
-        name,
-    ):
+    # -----------------------------------------------------
+    # IMAGE / EMPTY
+    # -----------------------------------------------------
+
+    def image_or_blank(image):
 
         if image is None:
 
-            image_cell = Paragraph(
+            return Paragraph(
                 "<br/><br/>",
-                STYLE_SIGNATURE,
+                STYLE_SIGNATURE_NAME,
             )
 
-        else:
+        return image
 
-            image_cell = image
+    # -----------------------------------------------------
+    # HEADER
+    # -----------------------------------------------------
 
-        return [
+    header = [
+        [
             Paragraph(
-                title,
-                STYLE_SIGNATURE,
+                "DIPERIKSA OLEH",
+                STYLE_SIGNATURE_TITLE,
             ),
-            image_cell,
             Paragraph(
-                f"({html.escape(str(name))})",
+                "DISERAHKAN OLEH",
+                STYLE_SIGNATURE_TITLE,
+            ),
+            Paragraph(
+                "DITERIMA OLEH",
+                STYLE_SIGNATURE_TITLE,
+            ),
+        ],
+        [
+            Paragraph(
+                "Security WH",
+                STYLE_SIGNATURE_ROLE,
+            ),
+            Paragraph(
+                "Dispatcher WH",
+                STYLE_SIGNATURE_ROLE,
+            ),
+            Paragraph(
+                "Driver Courier",
+                STYLE_SIGNATURE_ROLE,
+            ),
+        ],
+        [
+            image_or_blank(
+                security_image
+            ),
+            image_or_blank(
+                dispatcher_image
+            ),
+            image_or_blank(
+                driver_image
+            ),
+        ],
+        [
+            Paragraph(
+                f"({html.escape(str(security_name))})",
                 STYLE_SIGNATURE_NAME,
             ),
-        ]
-
-    security = signature_content(
-        "Diperiksa oleh<br/>Security WH",
-        img_security,
-        security_name,
-    )
-
-    dispatcher = signature_content(
-        "Diserahkan oleh<br/>Dispatcher WH",
-        img_dispatcher,
-        dispatcher_name,
-    )
-
-    driver = signature_content(
-        "Diterima oleh<br/>Driver Courier",
-        img_driver,
-        driver_name,
-    )
-
-    data = [
-        [
-            security[0],
-            dispatcher[0],
-            driver[0],
-        ],
-        [
-            security[1],
-            dispatcher[1],
-            driver[1],
-        ],
-        [
-            security[2],
-            dispatcher[2],
-            driver[2],
+            Paragraph(
+                f"({html.escape(str(dispatcher_name))})",
+                STYLE_SIGNATURE_NAME,
+            ),
+            Paragraph(
+                f"({html.escape(str(driver_name))})",
+                STYLE_SIGNATURE_NAME,
+            ),
         ],
     ]
 
     table = Table(
-        data,
+        header,
         colWidths=[
             63 * mm,
             63 * mm,
             63 * mm,
         ],
         rowHeights=[
-            7 * mm,
-            12 * mm,
+            5 * mm,
+            4 * mm,
+            13 * mm,
             5 * mm,
         ],
     )
@@ -971,6 +1410,35 @@ def create_signature_table(
     table.setStyle(
         TableStyle(
             [
+                (
+                    "BOX",
+                    (0, 0),
+                    (-1, -1),
+                    0.6,
+                    colors.HexColor(
+                        "#94A3B8"
+                    ),
+                ),
+
+                (
+                    "INNERGRID",
+                    (0, 0),
+                    (-1, -1),
+                    0.25,
+                    colors.HexColor(
+                        "#CBD5E1"
+                    ),
+                ),
+
+                (
+                    "BACKGROUND",
+                    (0, 0),
+                    (-1, 1),
+                    colors.HexColor(
+                        "#F8FAFC"
+                    ),
+                ),
+
                 (
                     "VALIGN",
                     (0, 0),
@@ -1003,22 +1471,14 @@ def create_signature_table(
                     "TOPPADDING",
                     (0, 0),
                     (-1, -1),
-                    0,
+                    0.5,
                 ),
 
                 (
                     "BOTTOMPADDING",
                     (0, 0),
                     (-1, -1),
-                    0,
-                ),
-
-                (
-                    "LINEABOVE",
-                    (0, 2),
-                    (-1, 2),
                     0.5,
-                    colors.black,
                 ),
             ]
         )
@@ -1028,11 +1488,12 @@ def create_signature_table(
 
 
 # =========================================================
-# GENERATE PDF
+# PDF GENERATOR
 # =========================================================
 
 def generate_pdf(
     df,
+
     tanggal,
     warehouse,
     courier,
@@ -1048,14 +1509,6 @@ def generate_pdf(
     dispatcher_name,
     driver_name,
 ):
-    """
-    Generate PDF A4 portrait.
-
-    Setiap halaman:
-    - 50 kiri
-    - 50 kanan
-    - total 100 resi
-    """
 
     buffer = io.BytesIO()
 
@@ -1063,17 +1516,23 @@ def generate_pdf(
         buffer,
         pagesize=A4,
 
-        leftMargin=6 * mm,
-        rightMargin=6 * mm,
+        leftMargin=MARGIN_LEFT,
+        rightMargin=MARGIN_RIGHT,
 
-        topMargin=5 * mm,
-        bottomMargin=8 * mm,
+        topMargin=MARGIN_TOP,
+        bottomMargin=MARGIN_BOTTOM,
 
         title="BAST",
         author="BAST Generator",
+
+        allowSplitting=False,
     )
 
     story = []
+
+    # -----------------------------------------------------
+    # TOTAL
+    # -----------------------------------------------------
 
     total_resi = len(df)
 
@@ -1086,9 +1545,9 @@ def generate_pdf(
         .sum()
     )
 
-    # =====================================================
-    # CHUNK 100 RESI / PAGE
-    # =====================================================
+    # -----------------------------------------------------
+    # CHUNK 100
+    # -----------------------------------------------------
 
     chunks = []
 
@@ -1117,8 +1576,9 @@ def generate_pdf(
             )
         )
 
-    # Kalau data kosong
+    # Data kosong
     if not chunks:
+
         chunks.append(
             (
                 pd.DataFrame(),
@@ -1126,9 +1586,9 @@ def generate_pdf(
             )
         )
 
-    # =====================================================
-    # BUILD EACH PAGE
-    # =====================================================
+    # -----------------------------------------------------
+    # EACH PAGE
+    # -----------------------------------------------------
 
     for page_index, (
         left_df,
@@ -1149,7 +1609,7 @@ def generate_pdf(
             )
         )
 
-        # DATA TABLE
+        # TABLE
         story.append(
             create_side_by_side_table(
                 left_df,
@@ -1160,20 +1620,20 @@ def generate_pdf(
         story.append(
             Spacer(
                 1,
-                2.5 * mm,
+                2.2 * mm,
             )
         )
 
         # SIGNATURE
         story.append(
             create_signature_table(
-                security_signature=security_signature,
-                dispatcher_signature=dispatcher_signature,
-                driver_signature=driver_signature,
+                security_signature,
+                dispatcher_signature,
+                driver_signature,
 
-                security_name=security_name,
-                dispatcher_name=dispatcher_name,
-                driver_name=driver_name,
+                security_name,
+                dispatcher_name,
+                driver_name,
             )
         )
 
@@ -1184,9 +1644,9 @@ def generate_pdf(
                 PageBreak()
             )
 
-    # =====================================================
+    # -----------------------------------------------------
     # BUILD
-    # =====================================================
+    # -----------------------------------------------------
 
     doc.build(
         story,
@@ -1199,24 +1659,27 @@ def generate_pdf(
 
 
 # =========================================================
-# STREAMLIT UI
+# STREAMLIT
 # =========================================================
 
 st.title("📄 BAST Generator")
 
 st.caption(
-    "1 halaman maksimal 100 resi — "
-    "50 tabel kiri + 50 tabel kanan."
+    "BAST compact — 100 resi per halaman "
+    "(50 kiri + 50 kanan)"
 )
 
 
 # =========================================================
-# HEADER INPUT
+# INFORMASI
 # =========================================================
 
-st.subheader("1. Informasi BAST")
+st.subheader(
+    "1. Informasi BAST"
+)
 
 col1, col2, col3 = st.columns(3)
+
 
 with col1:
 
@@ -1243,7 +1706,7 @@ with col2:
 
     driver = st.text_input(
         "Driver",
-        placeholder="Nama driver",
+        placeholder="Nama Driver",
     )
 
     police = st.text_input(
@@ -1254,42 +1717,48 @@ with col2:
 
 with col3:
 
-    st.info(
+    st.markdown(
         """
         **Layout PDF**
 
         • A4 Portrait  
         • 50 resi kiri  
         • 50 resi kanan  
-        • Maksimal 100 resi/page  
-        • >100 otomatis halaman berikutnya
+        • 100 resi / halaman  
+        • >100 otomatis halaman baru  
+        • 3 TTD di setiap halaman
         """
     )
 
 
 # =========================================================
-# SIGNER NAME
+# NAMA SIGNER
 # =========================================================
 
-st.subheader("2. Nama Penanda Tangan")
+st.subheader(
+    "2. Nama Penanda Tangan"
+)
 
-name_col1, name_col2, name_col3 = st.columns(3)
+name1, name2, name3 = st.columns(3)
 
-with name_col1:
+
+with name1:
 
     security_name = st.text_input(
         "Nama Security WH",
         placeholder="Nama lengkap",
     )
 
-with name_col2:
+
+with name2:
 
     dispatcher_name = st.text_input(
         "Nama Dispatcher WH",
         placeholder="Nama lengkap",
     )
 
-with name_col3:
+
+with name3:
 
     driver_name = st.text_input(
         "Nama Driver Courier",
@@ -1298,23 +1767,23 @@ with name_col3:
 
 
 # =========================================================
-# DATA EXCEL
+# DATA
 # =========================================================
 
-st.subheader("3. Data Resi")
+st.subheader(
+    "3. Data Resi"
+)
 
 st.markdown(
     """
-Copy data dari Excel lalu paste di bawah.
+Paste langsung dari Excel dengan urutan kolom:
 
-Kolom yang digunakan:
-
-`NO | DELIVERY ORDER | AIRWAYBILL | PROVIDER | KOLI QTY`
+**NO | DELIVERY ORDER | AIRWAYBILL | PROVIDER | KOLI QTY**
 """
 )
 
 paste_data = st.text_area(
-    "Paste data Excel di sini",
+    "Paste data Excel",
     height=220,
     placeholder=(
         "NO\tDELIVERY ORDER\tAIRWAYBILL\tPROVIDER\tKOLI QTY\n"
@@ -1325,7 +1794,7 @@ paste_data = st.text_area(
 
 
 # =========================================================
-# PREVIEW DATA
+# PREVIEW
 # =========================================================
 
 df = pd.DataFrame()
@@ -1340,34 +1809,43 @@ if paste_data.strip():
         df
     )
 
-    valid, message = validate_file(
-        df
+    valid, message = (
+        validate_file(df)
     )
 
     if valid:
 
-        st.success(
-            f"Data berhasil dibaca: {len(df)} resi"
+        total_koli_preview = int(
+            df["KOLI QTY"].sum()
         )
 
-        preview_col1, preview_col2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
 
-        with preview_col1:
+        with c1:
 
             st.metric(
                 "Jumlah Resi",
                 len(df),
             )
 
-        with preview_col2:
-
-            total_koli_preview = int(
-                df["KOLI QTY"].sum()
-            )
+        with c2:
 
             st.metric(
                 "Jumlah Koli",
                 total_koli_preview,
+            )
+
+        with c3:
+
+            pages = (
+                (len(df) + 99) // 100
+                if len(df)
+                else 0
+            )
+
+            st.metric(
+                "Perkiraan Halaman",
+                pages,
             )
 
         with st.expander(
@@ -1392,52 +1870,60 @@ if paste_data.strip():
 # SIGNATURE
 # =========================================================
 
-st.subheader("4. Tanda Tangan")
-
-st.caption(
-    "Tanda tangan langsung menggunakan mouse, "
-    "trackpad, atau jari pada layar."
+st.subheader(
+    "4. Tanda Tangan"
 )
 
-sig_col1, sig_col2, sig_col3 = st.columns(3)
+st.caption(
+    "Gunakan mouse, trackpad, atau jari "
+    "untuk membuat tanda tangan."
+)
+
+sig1, sig2, sig3 = st.columns(3)
 
 
-with sig_col1:
+with sig1:
 
     st.markdown(
         "**Diperiksa oleh — Security WH**"
     )
 
-    security_signature = signature_pad(
-        key="security_signature",
-        width=300,
-        height=140,
+    security_signature = (
+        signature_pad(
+            key="security_signature",
+            width=300,
+            height=140,
+        )
     )
 
 
-with sig_col2:
+with sig2:
 
     st.markdown(
         "**Diserahkan oleh — Dispatcher WH**"
     )
 
-    dispatcher_signature = signature_pad(
-        key="dispatcher_signature",
-        width=300,
-        height=140,
+    dispatcher_signature = (
+        signature_pad(
+            key="dispatcher_signature",
+            width=300,
+            height=140,
+        )
     )
 
 
-with sig_col3:
+with sig3:
 
     st.markdown(
         "**Diterima oleh — Driver Courier**"
     )
 
-    driver_signature = signature_pad(
-        key="driver_signature",
-        width=300,
-        height=140,
+    driver_signature = (
+        signature_pad(
+            key="driver_signature",
+            width=300,
+            height=140,
+        )
     )
 
 
@@ -1445,77 +1931,105 @@ with sig_col3:
 # VALIDATION
 # =========================================================
 
-st.subheader("5. Generate PDF")
-
-
 errors = []
 
+
 if not warehouse.strip():
+
     errors.append(
         "Warehouse belum diisi."
     )
 
+
 if not courier.strip():
+
     errors.append(
         "Courier belum diisi."
     )
 
+
 if not driver.strip():
+
     errors.append(
         "Driver belum diisi."
     )
 
+
 if not police.strip():
+
     errors.append(
         "Police / nomor kendaraan belum diisi."
     )
 
+
 if not security_name.strip():
+
     errors.append(
         "Nama Security WH belum diisi."
     )
 
+
 if not dispatcher_name.strip():
+
     errors.append(
         "Nama Dispatcher WH belum diisi."
     )
 
+
 if not driver_name.strip():
+
     errors.append(
         "Nama Driver Courier belum diisi."
     )
 
+
 if df.empty:
+
     errors.append(
         "Data resi belum diisi."
     )
 
+
 if not signature_exists(
     security_signature
 ):
+
     errors.append(
-        "Tanda tangan Security WH belum dibuat."
+        "TTD Security WH belum dibuat."
     )
+
 
 if not signature_exists(
     dispatcher_signature
 ):
+
     errors.append(
-        "Tanda tangan Dispatcher WH belum dibuat."
+        "TTD Dispatcher WH belum dibuat."
     )
+
 
 if not signature_exists(
     driver_signature
 ):
+
     errors.append(
-        "Tanda tangan Driver Courier belum dibuat."
+        "TTD Driver Courier belum dibuat."
     )
+
+
+# =========================================================
+# GENERATE
+# =========================================================
+
+st.subheader(
+    "5. Generate PDF"
+)
 
 
 if errors:
 
     with st.expander(
-        "Yang masih perlu dilengkapi",
+        "Data yang masih perlu dilengkapi",
         expanded=False,
     ):
 
@@ -1526,12 +2040,8 @@ if errors:
             )
 
 
-# =========================================================
-# GENERATE BUTTON
-# =========================================================
-
 if st.button(
-    "📄 Generate BAST PDF",
+    "📄 GENERATE BAST PDF",
     type="primary",
     use_container_width=True,
 ):
@@ -1544,11 +2054,11 @@ if st.button(
 
     else:
 
-        with st.spinner(
-            "Membuat PDF..."
-        ):
+        try:
 
-            try:
+            with st.spinner(
+                "Membuat PDF BAST..."
+            ):
 
                 pdf_bytes = generate_pdf(
                     df=df,
@@ -1560,37 +2070,57 @@ if st.button(
                     driver=driver,
                     police=police,
 
-                    security_signature=security_signature,
-                    dispatcher_signature=dispatcher_signature,
-                    driver_signature=driver_signature,
+                    security_signature=(
+                        security_signature
+                    ),
 
-                    security_name=security_name,
-                    dispatcher_name=dispatcher_name,
-                    driver_name=driver_name,
+                    dispatcher_signature=(
+                        dispatcher_signature
+                    ),
+
+                    driver_signature=(
+                        driver_signature
+                    ),
+
+                    security_name=(
+                        security_name
+                    ),
+
+                    dispatcher_name=(
+                        dispatcher_name
+                    ),
+
+                    driver_name=(
+                        driver_name
+                    ),
                 )
 
-                filename = (
-                    f"BAST_"
-                    f"{safe_filename(warehouse)}_"
-                    f"{tanggal}.pdf"
+            filename = (
+                "BAST_"
+                + safe_filename(
+                    warehouse
                 )
+                + "_"
+                + str(tanggal)
+                + ".pdf"
+            )
 
-                st.success(
-                    "PDF berhasil dibuat."
-                )
+            st.success(
+                "PDF berhasil dibuat."
+            )
 
-                st.download_button(
-                    label="⬇️ Download BAST PDF",
-                    data=pdf_bytes,
-                    file_name=filename,
-                    mime="application/pdf",
-                    use_container_width=True,
-                )
+            st.download_button(
+                label="⬇️ DOWNLOAD BAST PDF",
+                data=pdf_bytes,
+                file_name=filename,
+                mime="application/pdf",
+                use_container_width=True,
+            )
 
-            except Exception as e:
+        except Exception as e:
 
-                st.error(
-                    "Gagal membuat PDF."
-                )
+            st.error(
+                "Gagal membuat PDF."
+            )
 
-                st.exception(e)
+            st.exception(e)
