@@ -1,333 +1,109 @@
 import streamlit as st
 import pandas as pd
-
-from datetime import datetime
-from io import StringIO
+import base64
 import io
 import re
-import base64
-
-from reportlab.platypus import (
-    SimpleDocTemplate,
-    Table,
-    TableStyle,
-    Paragraph,
-    Spacer,
-    Image as RLImage
-)
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import (
-    getSampleStyleSheet,
-    ParagraphStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.units import mm
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle,
+    Image as RLImage,
 )
-from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
 
 from signature_component import signature_pad
 
 
-# ============================================================
-# CONFIG
-# ============================================================
+# =========================================================
+# PAGE CONFIG
+# =========================================================
 
 st.set_page_config(
     page_title="BAST Generator",
-    page_icon="📦",
     layout="wide"
 )
 
-
 st.title("📦 BAST Generator")
+st.caption("Generate Berita Acara Serah Terima (BAST) dengan tanda tangan langsung.")
 
-st.caption(
-    "Copy data dari Excel, isi data BAST, lalu buat "
-    "3 tanda tangan langsung menggunakan mouse atau jari."
-)
 
-
-# ============================================================
-# HEADER INPUT
-# ============================================================
-
-st.header("📋 Input Header")
-
-
-col1, col2 = st.columns(2)
-
-
-with col1:
-
-    tanggal_only = st.date_input(
-        "Tanggal",
-        value=datetime.now().date()
-    )
-
-
-    warehouse = st.text_input(
-        "Warehouse",
-        placeholder="Contoh: WH Jakarta"
-    )
-
-
-    courier = st.text_input(
-        "Courier Name",
-        placeholder="Nama courier"
-    )
-
-
-with col2:
-
-    waktu_only = st.time_input(
-        "Waktu",
-        value=datetime.now().time()
-    )
-
-
-    driver = st.text_input(
-        "Driver Name",
-        placeholder="Nama driver"
-    )
-
-
-    police = st.text_input(
-        "Police Number",
-        placeholder="Nomor kendaraan"
-    )
-
-
-# ============================================================
-# DATETIME
-# ============================================================
-
-def make_datetime(
-    date_obj,
-    time_obj
-):
-
-    return datetime(
-        date_obj.year,
-        date_obj.month,
-        date_obj.day,
-        time_obj.hour,
-        time_obj.minute,
-        time_obj.second
-    )
-
-
-tanggal = make_datetime(
-    tanggal_only,
-    waktu_only
-)
-
-
-# ============================================================
-# PASTE DATA
-# ============================================================
-
-st.header("📊 Paste Data")
-
-
-raw_text = st.text_area(
-    "Copy data dari Excel lalu paste di sini",
-    height=300,
-    placeholder=(
-        "NO\tDELIVERY ORDER\tAIRWAYBILL\tSTATE\t"
-        "PROVIDER\tKOLI QTY\n"
-        "1\tDO001\tAWB001\tDELIVERED\tJNE\t2"
-    )
-)
-
-
-# ============================================================
-# SIGNATURE
-# ============================================================
-
-st.header("✍️ Tanda Tangan")
-
-
-st.info(
-    "Isi nama masing-masing orang, kemudian gambar "
-    "tanda tangan menggunakan mouse atau jari."
-)
-
-
-# ============================================================
-# SIGNER NAMES
-# ============================================================
-
-sig_col1, sig_col2, sig_col3 = st.columns(3)
-
-
-with sig_col1:
-
-    st.subheader("Diperiksa oleh")
-
-    st.caption("Security WH")
-
-
-    security_name = st.text_input(
-        "Nama Security",
-        key="security_name",
-        placeholder="Nama Security"
-    )
-
-
-with sig_col2:
-
-    st.subheader("Diserahkan oleh")
-
-    st.caption("Dispatcher WH")
-
-
-    dispatcher_name = st.text_input(
-        "Nama Dispatcher",
-        key="dispatcher_name",
-        placeholder="Nama Dispatcher"
-    )
-
-
-with sig_col3:
-
-    st.subheader("Diterima oleh")
-
-    st.caption("Driver Courier")
-
-
-    driver_name = st.text_input(
-        "Nama Driver Courier",
-        key="driver_courier_name",
-        placeholder="Nama Driver Courier"
-    )
-
-
-# ============================================================
-# SIGNATURE CANVAS
-# ============================================================
-
-st.subheader("🖊️ Gambar Tanda Tangan")
-
-
-canvas_col1, canvas_col2, canvas_col3 = st.columns(3)
-
-
-with canvas_col1:
-
-    st.markdown("**Security WH**")
-
-
-    security_signature = signature_pad(
-        key="security_signature_pad",
-        width=350,
-        height=180
-    )
-
-
-with canvas_col2:
-
-    st.markdown("**Dispatcher WH**")
-
-
-    dispatcher_signature = signature_pad(
-        key="dispatcher_signature_pad",
-        width=350,
-        height=180
-    )
-
-
-with canvas_col3:
-
-    st.markdown("**Driver Courier**")
-
-
-    driver_signature = signature_pad(
-        key="driver_signature_pad",
-        width=350,
-        height=180
-    )
-
-
-# ============================================================
+# =========================================================
 # HELPER
-# ============================================================
+# =========================================================
 
 def safe_filename(text):
+    """Membersihkan text agar aman digunakan sebagai nama file."""
+    if not text:
+        return "BAST"
 
-    return re.sub(
-        r"[^A-Za-z0-9_-]",
-        "_",
-        str(text)
-    )
+    text = str(text)
+    text = re.sub(r'[\\/*?:"<>|]', "_", text)
+    text = re.sub(r"\s+", "_", text)
 
+    return text
 
-# ============================================================
-# PARSE DATA
-# ============================================================
 
 def parse_paste_data(text):
+    """
+    Parse data hasil copy dari Excel.
+    Mendukung TAB dan beberapa delimiter umum.
+    """
 
     if not text or not text.strip():
-
         return None
 
+    lines = [
+        line.strip()
+        for line in text.strip().splitlines()
+        if line.strip()
+    ]
+
+    if not lines:
+        return None
+
+    # Deteksi delimiter
+    first_line = lines[0]
+
+    if "\t" in first_line:
+        separator = "\t"
+    elif ";" in first_line:
+        separator = ";"
+    elif "," in first_line:
+        separator = ","
+    else:
+        separator = "\t"
 
     try:
-
-        if "\t" in text:
-
-            df = pd.read_csv(
-                StringIO(text),
-                sep="\t"
-            )
-
-        else:
-
-            df = pd.read_csv(
-                StringIO(text)
-            )
-
-
-        # Bersihkan nama kolom
+        df = pd.read_csv(
+            io.StringIO("\n".join(lines)),
+            sep=separator,
+            dtype=str
+        )
 
         df.columns = [
-            str(col).strip()
+            str(col).strip().upper()
             for col in df.columns
         ]
 
+        df = df.fillna("")
 
         return df
 
-
     except Exception:
-
         return None
 
 
-# ============================================================
-# VALIDATE DATA
-# ============================================================
-
 def validate_file(df):
-
-    errors = []
-
-
-    if df is None:
-
-        errors.append(
-            "Data tidak dapat dibaca."
-        )
-
-        return False, errors
-
-
-    if df.empty:
-
-        errors.append(
-            "Data kosong."
-        )
-
+    """Validasi kolom wajib."""
 
     required_columns = [
         "NO",
@@ -335,1053 +111,1033 @@ def validate_file(df):
         "AIRWAYBILL",
         "STATE",
         "PROVIDER",
-        "KOLI QTY"
+        "KOLI QTY",
     ]
 
+    if df is None:
+        return False, "Data kosong."
 
-    for column in required_columns:
+    missing = [
+        col
+        for col in required_columns
+        if col not in df.columns
+    ]
 
-        if column not in df.columns:
+    if missing:
+        return False, (
+            "Kolom berikut belum ditemukan: "
+            + ", ".join(missing)
+        )
 
-            errors.append(
-                f"Kolom wajib tidak ada: {column}"
-            )
+    return True, ""
 
+
+def fix_broken_rows(df):
+    """
+    Membersihkan data yang kosong / rusak ringan.
+    """
+
+    if df is None or df.empty:
+        return df
+
+    df = df.copy()
+
+    for col in df.columns:
+        df[col] = (
+            df[col]
+            .astype(str)
+            .replace("nan", "", regex=False)
+            .str.strip()
+        )
+
+    return df
+
+
+def signature_exists(signature):
+    """
+    Mengecek apakah signature berasal dari canvas
+    dan berupa Base64 PNG.
+    """
 
     return (
-        len(errors) == 0,
-        errors
+        isinstance(signature, str)
+        and signature.startswith("data:image/png;base64,")
     )
 
 
-# ============================================================
-# FIX BROKEN ROWS
-# ============================================================
+def signature_to_bytes(signature):
+    """
+    Mengubah Base64 signature menjadi BytesIO
+    agar bisa digunakan ReportLab.
+    """
 
-def fix_broken_rows(text):
-
-    lines = (
-        text
-        .replace("\r", "")
-        .split("\n")
-    )
-
-
-    fixed_lines = []
-
-
-    for line in lines:
-
-        line = line.strip()
-
-
-        if not line:
-
-            continue
-
-
-        if line.isdigit() and fixed_lines:
-
-            fixed_lines[-1] += (
-                "\t" + line
-            )
-
-        else:
-
-            fixed_lines.append(line)
-
-
-    return "\n".join(
-        fixed_lines
-    )
-
-
-# ============================================================
-# SIGNATURE DATA URL -> BYTES
-# ============================================================
-
-def signature_to_bytes(
-    signature_data
-):
-
-    if not signature_data:
-
+    if not signature_exists(signature):
         return None
-
 
     try:
+        encoded = signature.split(",", 1)[1]
 
-        if "," not in signature_data:
+        image_bytes = base64.b64decode(encoded)
 
-            return None
-
-
-        header, encoded = (
-            signature_data.split(
-                ",",
-                1
-            )
-        )
-
-
-        image_bytes = base64.b64decode(
-            encoded
-        )
-
-
-        return io.BytesIO(
-            image_bytes
-        )
-
+        return io.BytesIO(image_bytes)
 
     except Exception:
-
         return None
 
 
-# ============================================================
-# CHECK SIGNATURE
-# ============================================================
+# =========================================================
+# NUMBERED CANVAS
+# =========================================================
 
-def signature_exists(
-    signature_data
-):
+class NumberedCanvas(canvas.Canvas):
 
-    return bool(
-        signature_data
-        and isinstance(
-            signature_data,
-            str
-        )
-        and signature_data.startswith(
-            "data:image/"
-        )
-    )
+    def __init__(self, *args, **kwargs):
+        canvas.Canvas.__init__(self, *args, **kwargs)
 
-
-# ============================================================
-# PAGE NUMBER
-# ============================================================
-
-class NumberedCanvas(
-    canvas.Canvas
-):
-
-    def __init__(
-        self,
-        *args,
-        **kwargs
-    ):
-
-        super().__init__(
-            *args,
-            **kwargs
-        )
-
-        self.pages = []
-
+        self._saved_page_states = []
 
     def showPage(self):
-
-        self.pages.append(
-            dict(self.__dict__)
-        )
-
+        self._saved_page_states.append(dict(self.__dict__))
         self._startPage()
-
 
     def save(self):
 
-        total = len(
-            self.pages
+        total_pages = len(self._saved_page_states)
+
+        for state in self._saved_page_states:
+
+            self.__dict__.update(state)
+
+            self.draw_page_number(total_pages)
+
+            canvas.Canvas.showPage(self)
+
+        canvas.Canvas.save(self)
+
+    def draw_page_number(self, page_count):
+
+        page_number = self._pageNumber
+
+        self.saveState()
+
+        self.setFont("Helvetica", 8)
+
+        self.drawCentredString(
+            A4[0] / 2,
+            10 * mm,
+            f"Page {page_number} of {page_count}"
         )
 
-
-        for page in self.pages:
-
-            self.__dict__.update(
-                page
-            )
+        self.restoreState()
 
 
-            self.draw_page_number(
-                total
-            )
-
-
-            super().showPage()
-
-
-        super().save()
-
-
-    def draw_page_number(
-        self,
-        total
-    ):
-
-        page = self.getPageNumber()
-
-
-        self.setFont(
-            "Helvetica",
-            9
-        )
-
-
-        self.drawRightString(
-            A4[0] - 40,
-            20,
-            f"{page}/{total}"
-        )
-
-
-# ============================================================
+# =========================================================
 # PDF GENERATOR
-# ============================================================
+# =========================================================
 
 def generate_pdf(
     df,
     tanggal,
     warehouse,
     courier,
+    waktu,
     driver,
     police,
-    security_name,
-    dispatcher_name,
-    driver_name,
     security_signature,
     dispatcher_signature,
-    driver_signature
+    driver_signature,
 ):
+    """
+    Generate PDF BAST.
+    """
 
     buffer = io.BytesIO()
-
-
-    margin = (
-        0.5 * inch
-    )
-
-
-    page_width = (
-        A4[0]
-        - (margin * 2)
-    )
-
-
-    # ========================================================
-    # DOCUMENT
-    # ========================================================
 
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        leftMargin=margin,
-        rightMargin=margin,
-        topMargin=margin,
-        bottomMargin=margin
+        rightMargin=12 * mm,
+        leftMargin=12 * mm,
+        topMargin=12 * mm,
+        bottomMargin=18 * mm,
     )
 
+    styles = getSampleStyleSheet()
 
-    styles = (
-        getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "BASTTitle",
+        parent=styles["Title"],
+        fontName="Helvetica-Bold",
+        fontSize=15,
+        leading=18,
+        alignment=TA_CENTER,
+        spaceAfter=8,
     )
 
+    normal_style = ParagraphStyle(
+        "NormalCustom",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=9,
+        leading=12,
+    )
+
+    small_style = ParagraphStyle(
+        "Small",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=8,
+        leading=10,
+    )
+
+    signature_name_style = ParagraphStyle(
+        "SignatureName",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=9,
+        leading=11,
+        alignment=TA_CENTER,
+    )
+
+    signature_role_style = ParagraphStyle(
+        "SignatureRole",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=8,
+        leading=10,
+        alignment=TA_CENTER,
+    )
 
     elements = []
 
-
-    # ========================================================
+    # =====================================================
     # TITLE
-    # ========================================================
-
-    title_style = ParagraphStyle(
-        "title",
-        parent=styles["Title"],
-        alignment=1,
-        fontSize=18,
-        spaceAfter=12
-    )
-
+    # =====================================================
 
     elements.append(
         Paragraph(
-            "<b>BERITA ACARA SERAH TERIMA</b>",
+            "BERITA ACARA SERAH TERIMA",
             title_style
         )
     )
 
+    elements.append(
+        Paragraph(
+            "BAST",
+            ParagraphStyle(
+                "BASTSubtitle",
+                parent=title_style,
+                fontSize=11,
+                leading=13,
+                spaceAfter=10,
+            )
+        )
+    )
 
-    # ========================================================
+    # =====================================================
+    # HEADER INFORMATION
+    # =====================================================
+
+    header_data = [
+        [
+            Paragraph("<b>Tanggal</b>", normal_style),
+            Paragraph(str(tanggal), normal_style),
+            Paragraph("<b>Warehouse</b>", normal_style),
+            Paragraph(str(warehouse), normal_style),
+        ],
+        [
+            Paragraph("<b>Courier</b>", normal_style),
+            Paragraph(str(courier), normal_style),
+            Paragraph("<b>Waktu</b>", normal_style),
+            Paragraph(str(waktu), normal_style),
+        ],
+        [
+            Paragraph("<b>Driver</b>", normal_style),
+            Paragraph(str(driver), normal_style),
+            Paragraph("<b>Police</b>", normal_style),
+            Paragraph(str(police), normal_style),
+        ],
+    ]
+
+    header_table = Table(
+        header_data,
+        colWidths=[
+            28 * mm,
+            58 * mm,
+            28 * mm,
+            58 * mm,
+        ],
+    )
+
+    header_table.setStyle(
+        TableStyle([
+            (
+                "GRID",
+                (0, 0),
+                (-1, -1),
+                0.5,
+                colors.grey
+            ),
+            (
+                "VALIGN",
+                (0, 0),
+                (-1, -1),
+                "MIDDLE"
+            ),
+            (
+                "BACKGROUND",
+                (0, 0),
+                (0, -1),
+                colors.HexColor("#F2F2F2")
+            ),
+            (
+                "BACKGROUND",
+                (2, 0),
+                (2, -1),
+                colors.HexColor("#F2F2F2")
+            ),
+            (
+                "LEFTPADDING",
+                (0, 0),
+                (-1, -1),
+                5
+            ),
+            (
+                "RIGHTPADDING",
+                (0, 0),
+                (-1, -1),
+                5
+            ),
+            (
+                "TOPPADDING",
+                (0, 0),
+                (-1, -1),
+                5
+            ),
+            (
+                "BOTTOMPADDING",
+                (0, 0),
+                (-1, -1),
+                5
+            ),
+        ])
+    )
+
+    elements.append(header_table)
+    elements.append(Spacer(1, 8))
+
+    # =====================================================
     # TOTAL KOLI
-    # ========================================================
+    # =====================================================
 
-    total_koli = int(
-        pd.to_numeric(
+    try:
+        total_koli = pd.to_numeric(
             df["KOLI QTY"],
             errors="coerce"
-        )
-        .fillna(0)
-        .sum()
-    )
+        ).fillna(0).sum()
 
+        total_koli = int(total_koli)
 
-    # ========================================================
-    # HEADER TEXT
-    # ========================================================
+    except Exception:
+        total_koli = 0
 
-    tanggal_str = (
-        tanggal.strftime(
-            "%d/%m/%Y %H:%M:%S"
-        )
-    )
-
-
-    header_text = f"""
-    <b>Tanggal:</b> {tanggal_str}<br/>
-    <b>Warehouse:</b> {warehouse}<br/>
-    <b>Courier Name:</b> {courier}<br/>
-    <b>Driver Name:</b> {driver}<br/>
-    <b>Police Number:</b> {police}
-    """
-
-
-    label_style = ParagraphStyle(
-        "label",
-        parent=styles["Normal"],
-        alignment=1,
-        fontSize=10
-    )
-
-
-    big_style = ParagraphStyle(
-        "big",
-        parent=styles["Normal"],
-        alignment=1,
-        fontSize=20
-    )
-
-
-    total_box = Table(
+    total_table = Table(
         [
             [
                 Paragraph(
                     "<b>TOTAL KOLI</b>",
-                    label_style
-                )
-            ],
-
-            [
+                    normal_style
+                ),
                 Paragraph(
                     f"<b>{total_koli}</b>",
-                    big_style
-                )
+                    normal_style
+                ),
             ]
         ],
-
         colWidths=[
-            130
+            130 * mm,
+            42 * mm
         ],
-
-        rowHeights=[
-            25,
-            45
-        ]
     )
 
-
-    total_box.setStyle(
+    total_table.setStyle(
         TableStyle([
             (
                 "BOX",
                 (0, 0),
                 (-1, -1),
-                1.5,
+                0.8,
                 colors.black
             ),
-
+            (
+                "INNERGRID",
+                (0, 0),
+                (-1, -1),
+                0.5,
+                colors.grey
+            ),
+            (
+                "ALIGN",
+                (1, 0),
+                (1, 0),
+                "CENTER"
+            ),
             (
                 "BACKGROUND",
                 (0, 0),
-                (-1, 0),
-                colors.lightgrey
+                (0, 0),
+                colors.HexColor("#F2F2F2")
             ),
-
             (
-                "ALIGN",
+                "TOPPADDING",
                 (0, 0),
                 (-1, -1),
-                "CENTER"
+                7
             ),
-
             (
-                "VALIGN",
+                "BOTTOMPADDING",
                 (0, 0),
                 (-1, -1),
-                "MIDDLE"
-            )
+                7
+            ),
         ])
     )
 
+    elements.append(total_table)
+    elements.append(Spacer(1, 10))
 
-    header_table = Table(
-        [
-            [
-                Paragraph(
-                    header_text,
-                    styles["Normal"]
-                ),
-
-                total_box
-            ]
-        ],
-
-        colWidths=[
-            page_width - 130,
-            130
-        ]
-    )
-
-
-    header_table.setStyle(
-        TableStyle([
-            (
-                "VALIGN",
-                (0, 0),
-                (-1, -1),
-                "MIDDLE"
-            )
-        ])
-    )
-
-
-    elements.append(
-        header_table
-    )
-
-
-    elements.append(
-        Spacer(1, 12)
-    )
-
-
-    # ========================================================
+    # =====================================================
     # DATA TABLE
-    # ========================================================
+    # =====================================================
 
-    expected_columns = [
+    display_columns = [
         "NO",
         "DELIVERY ORDER",
         "AIRWAYBILL",
         "STATE",
         "PROVIDER",
-        "KOLI QTY"
+        "KOLI QTY",
     ]
 
+    table_data = []
 
-    df_pdf = (
-        df[
-            expected_columns
-        ]
-        .fillna("")
-        .astype(str)
+    # Header
+    table_data.append([
+        Paragraph(
+            f"<b>{col}</b>",
+            small_style
+        )
+        for col in display_columns
+    ])
+
+    # Data
+    for _, row in df.iterrows():
+
+        table_data.append([
+            Paragraph(
+                str(row.get("NO", "")),
+                small_style
+            ),
+
+            Paragraph(
+                str(row.get("DELIVERY ORDER", "")),
+                small_style
+            ),
+
+            Paragraph(
+                str(row.get("AIRWAYBILL", "")),
+                small_style
+            ),
+
+            Paragraph(
+                str(row.get("STATE", "")),
+                small_style
+            ),
+
+            Paragraph(
+                str(row.get("PROVIDER", "")),
+                small_style
+            ),
+
+            Paragraph(
+                str(row.get("KOLI QTY", "")),
+                small_style
+            ),
+        ])
+
+    data_table = Table(
+        table_data,
+        colWidths=[
+            10 * mm,
+            37 * mm,
+            43 * mm,
+            22 * mm,
+            35 * mm,
+            20 * mm,
+        ],
+        repeatRows=1,
     )
 
-
-    data = [
-        list(df_pdf.columns)
-    ] + df_pdf.values.tolist()
-
-
-    table = Table(
-        data,
-        repeatRows=1
-    )
-
-
-    table.setStyle(
+    data_table.setStyle(
         TableStyle([
-
-            (
-                "BACKGROUND",
-                (0, 0),
-                (-1, 0),
-                colors.HexColor(
-                    "#1F4E78"
-                )
-            ),
-
-            (
-                "TEXTCOLOR",
-                (0, 0),
-                (-1, 0),
-                colors.white
-            ),
-
             (
                 "GRID",
                 (0, 0),
                 (-1, -1),
                 0.4,
-                colors.black
+                colors.grey
             ),
-
             (
-                "FONTSIZE",
+                "BACKGROUND",
                 (0, 0),
-                (-1, -1),
-                7
+                (-1, 0),
+                colors.HexColor("#D9EAF7")
             ),
-
             (
                 "ALIGN",
                 (0, 0),
-                (-1, -1),
+                (-1, 0),
                 "CENTER"
             ),
-
+            (
+                "ALIGN",
+                (0, 1),
+                (0, -1),
+                "CENTER"
+            ),
+            (
+                "ALIGN",
+                (5, 1),
+                (5, -1),
+                "CENTER"
+            ),
             (
                 "VALIGN",
                 (0, 0),
                 (-1, -1),
                 "MIDDLE"
             ),
-
+            (
+                "LEFTPADDING",
+                (0, 0),
+                (-1, -1),
+                3
+            ),
+            (
+                "RIGHTPADDING",
+                (0, 0),
+                (-1, -1),
+                3
+            ),
             (
                 "TOPPADDING",
                 (0, 0),
                 (-1, -1),
                 4
             ),
-
             (
                 "BOTTOMPADDING",
                 (0, 0),
                 (-1, -1),
                 4
-            )
-
+            ),
         ])
     )
 
+    elements.append(data_table)
+    elements.append(Spacer(1, 12))
 
-    elements.append(
-        table
+    # =====================================================
+    # SIGNATURES
+    # =====================================================
+
+    security_bytes = signature_to_bytes(
+        security_signature
     )
 
-
-    # ========================================================
-    # SIGNATURE SECTION
-    # ========================================================
-
-    elements.append(
-        Spacer(1, 25)
+    dispatcher_bytes = signature_to_bytes(
+        dispatcher_signature
     )
 
-
-    signature_name_style = ParagraphStyle(
-        "signature_name",
-        parent=styles["Normal"],
-        alignment=1,
-        fontSize=9
+    driver_bytes = signature_to_bytes(
+        driver_signature
     )
 
+    def make_signature_image(image_bytes):
 
-    role_style = ParagraphStyle(
-        "role",
-        parent=styles["Normal"],
-        alignment=1,
-        fontSize=8
+        if not image_bytes:
+            return Spacer(1, 60)
+
+        try:
+            image_bytes.seek(0)
+
+            image = RLImage(
+                image_bytes,
+                width=42 * mm,
+                height=22 * mm,
+            )
+
+            return image
+
+        except Exception:
+            return Spacer(1, 60)
+
+    security_img = make_signature_image(
+        security_bytes
     )
 
-
-    note_style = ParagraphStyle(
-        "note",
-        parent=styles["Normal"],
-        alignment=1,
-        fontSize=8
+    dispatcher_img = make_signature_image(
+        dispatcher_bytes
     )
 
-
-    # ========================================================
-    # SECURITY
-    # ========================================================
-
-    security_bytes = (
-        signature_to_bytes(
-            security_signature
-        )
+    driver_img = make_signature_image(
+        driver_bytes
     )
 
-
-    if security_bytes:
-
-        security_img = RLImage(
-            security_bytes,
-            width=120,
-            height=60
-        )
-
-    else:
-
-        security_img = Spacer(
-            1,
-            60
-        )
-
-
-    security_cell = [
-
-        security_img,
-
-        Paragraph(
-            f"<b>{security_name}</b>",
-            signature_name_style
-        ),
-
-        Paragraph(
-            "(Security WH)",
-            role_style
-        )
-    ]
-
-
-    # ========================================================
-    # DISPATCHER
-    # ========================================================
-
-    dispatcher_bytes = (
-        signature_to_bytes(
-            dispatcher_signature
-        )
-    )
-
-
-    if dispatcher_bytes:
-
-        dispatcher_img = RLImage(
-            dispatcher_bytes,
-            width=120,
-            height=60
-        )
-
-    else:
-
-        dispatcher_img = Spacer(
-            1,
-            60
-        )
-
-
-    dispatcher_cell = [
-
-        dispatcher_img,
-
-        Paragraph(
-            f"<b>{dispatcher_name}</b>",
-            signature_name_style
-        ),
-
-        Paragraph(
-            "(Dispatcher WH)",
-            role_style
-        )
-    ]
-
-
-    # ========================================================
-    # DRIVER
-    # ========================================================
-
-    driver_bytes = (
-        signature_to_bytes(
-            driver_signature
-        )
-    )
-
-
-    if driver_bytes:
-
-        driver_img = RLImage(
-            driver_bytes,
-            width=120,
-            height=60
-        )
-
-    else:
-
-        driver_img = Spacer(
-            1,
-            60
-        )
-
-
-    driver_cell = [
-
-        driver_img,
-
-        Paragraph(
-            f"<b>{driver_name}</b>",
-            signature_name_style
-        ),
-
-        Paragraph(
-            "(Driver Courier)",
-            role_style
-        )
-    ]
-
-
-    # ========================================================
-    # SIGNATURE TABLE
-    # ========================================================
-
-    sign = Table(
+    signature_data = [
         [
-
-            [
-                Paragraph(
-                    "<b>Diperiksa oleh</b>",
-                    styles["Normal"]
-                ),
-
-                Paragraph(
-                    "<b>Diserahkan oleh</b>",
-                    styles["Normal"]
-                ),
-
-                Paragraph(
-                    "<b>Diterima oleh</b>",
-                    styles["Normal"]
-                )
-            ],
-
-            [
-                security_cell,
-                dispatcher_cell,
-                driver_cell
-            ],
-
-            [
-                "",
-                "",
-                ""
-            ],
-
-            [
-                Paragraph(
-                    "* BAST ini sebagai bukti bahwa "
-                    "paket sudah diserahkan dengan kondisi "
-                    "baik dan jumlah koli sesuai.",
-                    note_style
-                ),
-
-                "",
-                ""
-            ]
+            Paragraph(
+                "<b>Diperiksa oleh</b>",
+                signature_role_style
+            ),
+            Paragraph(
+                "<b>Diserahkan oleh</b>",
+                signature_role_style
+            ),
+            Paragraph(
+                "<b>Diterima oleh</b>",
+                signature_role_style
+            ),
         ],
+        [
+            security_img,
+            dispatcher_img,
+            driver_img,
+        ],
+        [
+            Paragraph(
+                str("Security WH"),
+                signature_name_style
+            ),
+            Paragraph(
+                str("Dispatcher WH"),
+                signature_name_style
+            ),
+            Paragraph(
+                str("Driver Courier"),
+                signature_name_style
+            ),
+        ],
+    ]
 
+    signature_table = Table(
+        signature_data,
         colWidths=[
-            page_width / 3
-        ] * 3
+            58 * mm,
+            58 * mm,
+            58 * mm,
+        ],
+        rowHeights=[
+            10 * mm,
+            25 * mm,
+            10 * mm,
+        ],
     )
 
-
-    sign.setStyle(
+    signature_table.setStyle(
         TableStyle([
-
             (
                 "ALIGN",
                 (0, 0),
                 (-1, -1),
                 "CENTER"
             ),
-
             (
                 "VALIGN",
                 (0, 0),
                 (-1, -1),
                 "MIDDLE"
             ),
-
             (
-                "SPAN",
-                (0, 3),
-                (2, 3)
+                "LEFTPADDING",
+                (0, 0),
+                (-1, -1),
+                3
             ),
-
+            (
+                "RIGHTPADDING",
+                (0, 0),
+                (-1, -1),
+                3
+            ),
             (
                 "TOPPADDING",
                 (0, 0),
                 (-1, -1),
-                5
+                2
             ),
-
             (
                 "BOTTOMPADDING",
                 (0, 0),
                 (-1, -1),
-                5
-            )
-
+                2
+            ),
         ])
     )
 
+    elements.append(signature_table)
+    elements.append(Spacer(1, 8))
+
+    # =====================================================
+    # NOTE
+    # =====================================================
 
     elements.append(
-        sign
+        Paragraph(
+            "Dokumen ini dibuat sebagai bukti serah terima barang.",
+            small_style
+        )
     )
 
-
-    # ========================================================
-    # BUILD
-    # ========================================================
+    # =====================================================
+    # BUILD PDF
+    # =====================================================
 
     doc.build(
         elements,
         canvasmaker=NumberedCanvas
     )
 
-
     buffer.seek(0)
-
 
     return buffer
 
 
-# ============================================================
-# PROCESS
-# ============================================================
+# =========================================================
+# INPUT FORM
+# =========================================================
 
-if raw_text.strip():
+st.markdown("### Informasi BAST")
 
-    cleaned = fix_broken_rows(
-        raw_text
+col1, col2, col3 = st.columns(3)
+
+with col1:
+
+    tanggal = st.text_input(
+        "Tanggal",
+        placeholder="Contoh: 28 September 2026"
+    )
+
+    warehouse = st.text_input(
+        "Warehouse",
+        placeholder="Contoh: WH Jakarta"
+    )
+
+    courier = st.text_input(
+        "Courier",
+        placeholder="Contoh: JNE"
+    )
+
+with col2:
+
+    waktu = st.text_input(
+        "Waktu",
+        placeholder="Contoh: 14:30"
+    )
+
+    driver = st.text_input(
+        "Driver",
+        placeholder="Nama driver"
+    )
+
+    police = st.text_input(
+        "Police",
+        placeholder="Nomor polisi kendaraan"
+    )
+
+with col3:
+
+    st.markdown("#### Data Excel")
+
+    st.caption(
+        "Copy data dari Excel lalu paste ke kotak di bawah."
     )
 
 
-    df = parse_paste_data(
-        cleaned
+# =========================================================
+# DATA EXCEL
+# =========================================================
+
+paste_data = st.text_area(
+    "Paste Data Excel",
+    height=220,
+    placeholder=(
+        "NO\tDELIVERY ORDER\tAIRWAYBILL\tSTATE\t"
+        "PROVIDER\tKOLI QTY\n"
+        "1\tDO001\tAWB001\tOK\tJNE\t2\n"
+        "2\tDO002\tAWB002\tOK\tSPX\t3"
     )
+)
 
+df = None
 
-    valid, errors = validate_file(
-        df
-    )
+if paste_data.strip():
 
+    df = parse_paste_data(paste_data)
 
-    if not valid:
+    if df is None:
 
-        for error in errors:
-
-            st.error(error)
-
+        st.error(
+            "Data tidak dapat dibaca. "
+            "Pastikan format hasil copy dari Excel benar."
+        )
 
     else:
 
-        st.success(
-            "✅ Data berhasil dibaca."
-        )
+        df = fix_broken_rows(df)
 
+        valid, error_message = validate_file(df)
 
-        # ====================================================
-        # PREVIEW
-        # ====================================================
+        if not valid:
 
-        st.subheader(
-            "Preview Data"
-        )
+            st.error(error_message)
 
-
-        st.dataframe(
-            df,
-            use_container_width=True
-        )
-
-
-        # ====================================================
-        # TOTAL KOLI
-        # ====================================================
-
-        total_koli = int(
-            pd.to_numeric(
-                df["KOLI QTY"],
-                errors="coerce"
-            )
-            .fillna(0)
-            .sum()
-        )
-
-
-        st.info(
-            f"📦 TOTAL KOLI: {total_koli}"
-        )
-
-
-        # ====================================================
-        # VALIDATION
-        # ====================================================
-
-        names_ready = (
-
-            bool(
-                security_name.strip()
-            )
-
-            and
-
-            bool(
-                dispatcher_name.strip()
-            )
-
-            and
-
-            bool(
-                driver_name.strip()
-            )
-        )
-
-
-        # ====================================================
-        # GENERATE BUTTON
-        # ====================================================
-
-        if st.button(
-            "📄 Generate PDF",
-            type="primary",
-            use_container_width=True
-        ):
-
-            # -----------------------------------------------
-            # NAME VALIDATION
-            # -----------------------------------------------
-
-            if not names_ready:
-
-                st.error(
-                    "Nama Security, Dispatcher, dan "
-                    "Driver Courier wajib diisi."
-                )
-
-                st.stop()
-
-
-            # -----------------------------------------------
-            # SIGNATURE VALIDATION
-            # -----------------------------------------------
-
-            if not signature_exists(
-                security_signature
-            ):
-
-                st.error(
-                    "✍️ Tanda tangan Security WH "
-                    "belum dibuat."
-                )
-
-                st.stop()
-
-
-            if not signature_exists(
-                dispatcher_signature
-            ):
-
-                st.error(
-                    "✍️ Tanda tangan Dispatcher WH "
-                    "belum dibuat."
-                )
-
-                st.stop()
-
-
-            if not signature_exists(
-                driver_signature
-            ):
-
-                st.error(
-                    "✍️ Tanda tangan Driver Courier "
-                    "belum dibuat."
-                )
-
-                st.stop()
-
-
-            # -----------------------------------------------
-            # GENERATE
-            # -----------------------------------------------
-
-            with st.spinner(
-                "Sedang membuat PDF..."
-            ):
-
-                pdf = generate_pdf(
-
-                    df=df,
-
-                    tanggal=tanggal,
-
-                    warehouse=warehouse,
-
-                    courier=courier,
-
-                    driver=driver,
-
-                    police=police,
-
-                    security_name=security_name,
-
-                    dispatcher_name=dispatcher_name,
-
-                    driver_name=driver_name,
-
-                    security_signature=(
-                        security_signature
-                    ),
-
-                    dispatcher_signature=(
-                        dispatcher_signature
-                    ),
-
-                    driver_signature=(
-                        driver_signature
-                    )
-                )
-
-
-            # -----------------------------------------------
-            # FILE NAME
-            # -----------------------------------------------
-
-            warehouse_safe = safe_filename(
-                warehouse
-            )
-
-
-            fname = (
-                f"BAST_"
-                f"{warehouse_safe}_"
-                f"{tanggal.strftime('%Y%m%d_%H%M%S')}.pdf"
-            )
-
-
-            # -----------------------------------------------
-            # SUCCESS
-            # -----------------------------------------------
+        else:
 
             st.success(
-                "✅ PDF berhasil dibuat!"
+                f"Data berhasil dibaca: {len(df)} baris"
+            )
+
+            st.dataframe(
+                df,
+                use_container_width=True,
+                hide_index=True
             )
 
 
-            st.download_button(
+# =========================================================
+# SIGNATURE SECTION
+# =========================================================
 
-                label="📥 Download PDF",
+st.markdown("---")
+st.markdown("## ✍️ Tanda Tangan")
 
-                data=pdf,
+st.info(
+    "Tanda tangan langsung menggunakan mouse, touchpad, "
+    "atau jari pada layar touchscreen."
+)
 
-                file_name=fname,
+sig_col1, sig_col2, sig_col3 = st.columns(3)
 
-                mime="application/pdf",
 
-                use_container_width=True
+with sig_col1:
+
+    st.markdown("### Diperiksa oleh")
+    st.caption("Security WH")
+
+    security_signature = signature_pad(
+        key="security_signature",
+        width=350,
+        height=180
+    )
+
+
+with sig_col2:
+
+    st.markdown("### Diserahkan oleh")
+    st.caption("Dispatcher WH")
+
+    dispatcher_signature = signature_pad(
+        key="dispatcher_signature",
+        width=350,
+        height=180
+    )
+
+
+with sig_col3:
+
+    st.markdown("### Diterima oleh")
+    st.caption("Driver Courier")
+
+    driver_signature = signature_pad(
+        key="driver_signature",
+        width=350,
+        height=180
+    )
+
+
+# =========================================================
+# SIGNATURE STATUS
+# =========================================================
+
+st.markdown("### Status Tanda Tangan")
+
+status_col1, status_col2, status_col3 = st.columns(3)
+
+with status_col1:
+
+    if signature_exists(security_signature):
+        st.success("✅ Security WH sudah tanda tangan")
+    else:
+        st.warning("⚠️ Security WH belum tanda tangan")
+
+with status_col2:
+
+    if signature_exists(dispatcher_signature):
+        st.success("✅ Dispatcher WH sudah tanda tangan")
+    else:
+        st.warning("⚠️ Dispatcher WH belum tanda tangan")
+
+with status_col3:
+
+    if signature_exists(driver_signature):
+        st.success("✅ Driver Courier sudah tanda tangan")
+    else:
+        st.warning("⚠️ Driver Courier belum tanda tangan")
+
+
+# =========================================================
+# GENERATE
+# =========================================================
+
+st.markdown("---")
+
+generate_button = st.button(
+    "📄 Generate BAST PDF",
+    type="primary",
+    use_container_width=True
+)
+
+
+if generate_button:
+
+    # ---------------------------------------------
+    # VALIDASI HEADER
+    # ---------------------------------------------
+
+    required_header = {
+        "Tanggal": tanggal,
+        "Warehouse": warehouse,
+        "Courier": courier,
+        "Waktu": waktu,
+        "Driver": driver,
+        "Police": police,
+    }
+
+    missing_header = [
+        name
+        for name, value in required_header.items()
+        if not str(value).strip()
+    ]
+
+    if missing_header:
+
+        st.error(
+            "Field berikut belum diisi: "
+            + ", ".join(missing_header)
+        )
+
+        st.stop()
+
+    # ---------------------------------------------
+    # VALIDASI DATA
+    # ---------------------------------------------
+
+    if df is None or df.empty:
+
+        st.error(
+            "Data Excel belum dimasukkan."
+        )
+
+        st.stop()
+
+    valid, error_message = validate_file(df)
+
+    if not valid:
+
+        st.error(error_message)
+
+        st.stop()
+
+    # ---------------------------------------------
+    # VALIDASI SIGNATURE
+    # ---------------------------------------------
+
+    missing_signature = []
+
+    if not signature_exists(
+        security_signature
+    ):
+        missing_signature.append(
+            "Security WH"
+        )
+
+    if not signature_exists(
+        dispatcher_signature
+    ):
+        missing_signature.append(
+            "Dispatcher WH"
+        )
+
+    if not signature_exists(
+        driver_signature
+    ):
+        missing_signature.append(
+            "Driver Courier"
+        )
+
+    if missing_signature:
+
+        st.error(
+            "Tanda tangan belum lengkap: "
+            + ", ".join(missing_signature)
+        )
+
+        st.stop()
+
+    # ---------------------------------------------
+    # GENERATE PDF
+    # ---------------------------------------------
+
+    try:
+
+        with st.spinner(
+            "Sedang membuat PDF..."
+        ):
+
+            pdf_buffer = generate_pdf(
+                df=df,
+                tanggal=tanggal,
+                warehouse=warehouse,
+                courier=courier,
+                waktu=waktu,
+                driver=driver,
+                police=police,
+                security_signature=security_signature,
+                dispatcher_signature=dispatcher_signature,
+                driver_signature=driver_signature,
             )
+
+        filename = (
+            f"BAST_"
+            f"{safe_filename(warehouse)}_"
+            f"{safe_filename(tanggal)}.pdf"
+        )
+
+        st.success(
+            "✅ PDF BAST berhasil dibuat."
+        )
+
+        st.download_button(
+            label="⬇️ Download BAST PDF",
+            data=pdf_buffer.getvalue(),
+            file_name=filename,
+            mime="application/pdf",
+            use_container_width=True,
+        )
+
+    except Exception as e:
+
+        st.error(
+            f"Gagal membuat PDF: {str(e)}"
+        )
