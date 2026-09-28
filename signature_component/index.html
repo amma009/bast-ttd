@@ -1,10 +1,7 @@
 <!DOCTYPE html>
 <html lang="id">
-
 <head>
-
     <meta charset="UTF-8">
-
     <meta
         name="viewport"
         content="width=device-width, initial-scale=1.0"
@@ -12,143 +9,84 @@
 
     <title>Signature Pad</title>
 
-
     <style>
-
         * {
             box-sizing: border-box;
         }
 
-
         html,
         body {
-
             margin: 0;
-
             padding: 0;
-
             width: 100%;
-
             background: transparent;
-
-            font-family:
-                Arial,
-                sans-serif;
+            font-family: Arial, sans-serif;
         }
-
 
         #container {
-
             width: 100%;
-
-            padding: 0;
         }
 
-
         #canvas-wrapper {
-
             width: 100%;
-
             background: white;
-
             border: 1px solid #999;
-
             border-radius: 8px;
-
             overflow: hidden;
         }
 
-
         #signature-canvas {
-
             display: block;
-
             width: 100%;
-
             height: 180px;
-
             background: white;
-
             touch-action: none;
-
             cursor: crosshair;
         }
 
-
         #toolbar {
-
             display: flex;
-
             align-items: center;
-
             gap: 8px;
-
             margin-top: 8px;
         }
 
-
         #clear-button {
-
             border: 1px solid #aaa;
-
             background: white;
-
             border-radius: 6px;
-
             padding: 6px 12px;
-
             font-size: 13px;
-
             cursor: pointer;
         }
 
-
         #clear-button:hover {
-
             background: #f0f0f0;
         }
 
-
         #status {
-
             font-size: 12px;
-
             color: #777;
         }
-
     </style>
-
 </head>
 
-
 <body>
-
 
 <div id="container">
 
     <div id="canvas-wrapper">
-
-        <canvas
-            id="signature-canvas"
-        ></canvas>
-
+        <canvas id="signature-canvas"></canvas>
     </div>
 
-
     <div id="toolbar">
-
-        <button
-            id="clear-button"
-            type="button"
-        >
+        <button id="clear-button" type="button">
             🗑️ Clear
         </button>
-
 
         <span id="status">
             Belum ada tanda tangan
         </span>
-
     </div>
 
 </div>
@@ -156,418 +94,374 @@
 
 <script>
 
+    // =====================================================
+    // STREAMLIT COMMUNICATION
+    // =====================================================
 
-// ============================================================
-// STREAMLIT COMPONENT
-// ============================================================
+    function sendComponentReady() {
 
-function sendToStreamlit(
-    type,
-    value = null
-) {
-
-    window.parent.postMessage(
-
-        {
-            isStreamlitMessage: true,
-
-            type: type,
-
-            ...(value !== null
-                ? { value: value }
-                : {})
-        },
-
-        "*"
-    );
-}
-
-
-// ============================================================
-// TELL STREAMLIT COMPONENT IS READY
-// ============================================================
-
-sendToStreamlit(
-    "streamlit:componentReady",
-    {
-        apiVersion: 1
-    }
-);
-
-
-// ============================================================
-// ELEMENT
-// ============================================================
-
-const canvas =
-    document.getElementById(
-        "signature-canvas"
-    );
-
-
-const ctx =
-    canvas.getContext("2d");
-
-
-const clearButton =
-    document.getElementById(
-        "clear-button"
-    );
-
-
-const status =
-    document.getElementById(
-        "status"
-    );
-
-
-// ============================================================
-// VARIABLES
-// ============================================================
-
-let drawing = false;
-
-let hasSignature = false;
-
-let lastX = 0;
-
-let lastY = 0;
-
-
-// ============================================================
-// CANVAS SIZE
-// ============================================================
-
-function resizeCanvas() {
-
-    const rect =
-        canvas.getBoundingClientRect();
-
-
-    const ratio =
-        window.devicePixelRatio || 1;
-
-
-    canvas.width =
-        Math.round(
-            rect.width * ratio
+        window.parent.postMessage(
+            {
+                isStreamlitMessage: true,
+                type: "streamlit:componentReady",
+                apiVersion: 1
+            },
+            "*"
         );
 
+    }
 
-    canvas.height =
-        Math.round(
-            rect.height * ratio
+
+    function sendComponentValue(value) {
+
+        window.parent.postMessage(
+            {
+                isStreamlitMessage: true,
+                type: "streamlit:setComponentValue",
+                value: value
+            },
+            "*"
         );
 
-
-    ctx.setTransform(
-        ratio,
-        0,
-        0,
-        ratio,
-        0,
-        0
-    );
-
-
-    ctx.lineWidth = 2;
-
-    ctx.lineCap = "round";
-
-    ctx.lineJoin = "round";
-
-    ctx.strokeStyle = "#000000";
-}
-
-
-resizeCanvas();
-
-
-// ============================================================
-// GET POSITION
-// ============================================================
-
-function getPosition(event) {
-
-    const rect =
-        canvas.getBoundingClientRect();
-
-
-    return {
-
-        x:
-            event.clientX
-            - rect.left,
-
-        y:
-            event.clientY
-            - rect.top
-    };
-}
-
-
-// ============================================================
-// START
-// ============================================================
-
-function startDrawing(event) {
-
-    event.preventDefault();
-
-
-    drawing = true;
-
-
-    const position =
-        getPosition(event);
-
-
-    lastX =
-        position.x;
-
-
-    lastY =
-        position.y;
-
-
-    canvas.setPointerCapture(
-        event.pointerId
-    );
-
-
-    // Titik awal
-    ctx.beginPath();
-
-    ctx.arc(
-        lastX,
-        lastY,
-        1,
-        0,
-        Math.PI * 2
-    );
-
-    ctx.fillStyle =
-        "#000000";
-
-    ctx.fill();
-}
-
-
-// ============================================================
-// DRAW
-// ============================================================
-
-function draw(event) {
-
-    if (!drawing) {
-        return;
     }
 
 
-    event.preventDefault();
+    function setFrameHeight(height) {
 
-
-    const position =
-        getPosition(event);
-
-
-    ctx.beginPath();
-
-
-    ctx.moveTo(
-        lastX,
-        lastY
-    );
-
-
-    ctx.lineTo(
-        position.x,
-        position.y
-    );
-
-
-    ctx.stroke();
-
-
-    lastX =
-        position.x;
-
-
-    lastY =
-        position.y;
-
-
-    hasSignature = true;
-
-
-    status.textContent =
-        "Tanda tangan sudah dibuat";
-}
-
-
-// ============================================================
-// END
-// ============================================================
-
-function stopDrawing(event) {
-
-    if (!drawing) {
-        return;
-    }
-
-
-    event.preventDefault();
-
-
-    drawing = false;
-
-
-    try {
-
-        canvas.releasePointerCapture(
-            event.pointerId
+        window.parent.postMessage(
+            {
+                isStreamlitMessage: true,
+                type: "streamlit:setFrameHeight",
+                height: height
+            },
+            "*"
         );
 
-    } catch (error) {
-        // ignore
     }
 
 
-    if (!hasSignature) {
-        return;
-    }
+    // =====================================================
+    // ELEMENT
+    // =====================================================
+
+    const canvas =
+        document.getElementById("signature-canvas");
+
+    const ctx =
+        canvas.getContext("2d");
+
+    const clearButton =
+        document.getElementById("clear-button");
+
+    const status =
+        document.getElementById("status");
 
 
-    const imageData =
-        canvas.toDataURL(
-            "image/png"
+    // =====================================================
+    // STATE
+    // =====================================================
+
+    let drawing = false;
+
+    let hasSignature = false;
+
+    let lastX = 0;
+
+    let lastY = 0;
+
+
+    // =====================================================
+    // CANVAS
+    // =====================================================
+
+    function resizeCanvas() {
+
+        const rect =
+            canvas.getBoundingClientRect();
+
+        const ratio =
+            window.devicePixelRatio || 1;
+
+        canvas.width =
+            Math.round(rect.width * ratio);
+
+        canvas.height =
+            Math.round(rect.height * ratio);
+
+        ctx.setTransform(
+            ratio,
+            0,
+            0,
+            ratio,
+            0,
+            0
         );
 
+        ctx.lineWidth = 2;
 
-    // Kirim hasil canvas ke Python
-    sendToStreamlit(
-        "streamlit:setComponentValue",
-        imageData
-    );
-}
+        ctx.lineCap = "round";
 
+        ctx.lineJoin = "round";
 
-// ============================================================
-// POINTER EVENTS
-// ============================================================
+        ctx.strokeStyle = "#000000";
 
-canvas.addEventListener(
-    "pointerdown",
-    startDrawing
-);
+        ctx.fillStyle = "#000000";
+    }
 
 
-canvas.addEventListener(
-    "pointermove",
-    draw
-);
+    resizeCanvas();
 
 
-canvas.addEventListener(
-    "pointerup",
-    stopDrawing
-);
+    // =====================================================
+    // POSITION
+    // =====================================================
+
+    function getPosition(event) {
+
+        const rect =
+            canvas.getBoundingClientRect();
+
+        return {
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top
+        };
+
+    }
 
 
-canvas.addEventListener(
-    "pointercancel",
-    stopDrawing
-);
+    // =====================================================
+    // START DRAWING
+    // =====================================================
 
-
-// ============================================================
-// CLEAR
-// ============================================================
-
-clearButton.addEventListener(
-    "click",
-    function(event) {
+    function startDrawing(event) {
 
         event.preventDefault();
 
+        drawing = true;
 
-        ctx.clearRect(
+        const position =
+            getPosition(event);
+
+        lastX = position.x;
+
+        lastY = position.y;
+
+        try {
+
+            canvas.setPointerCapture(
+                event.pointerId
+            );
+
+        } catch (error) {
+        }
+
+        // Titik awal
+        ctx.beginPath();
+
+        ctx.arc(
+            lastX,
+            lastY,
+            1,
             0,
-            0,
-            canvas.width,
-            canvas.height
+            Math.PI * 2
         );
 
+        ctx.fill();
 
-        hasSignature = false;
-
+        hasSignature = true;
 
         status.textContent =
-            "Belum ada tanda tangan";
+            "Tanda tangan sedang dibuat";
 
-
-        // Kirim nilai kosong
-        // ke Python
-        sendToStreamlit(
-            "streamlit:setComponentValue",
-            ""
-        );
     }
-);
 
 
-// ============================================================
-// STREAMLIT RENDER EVENT
-// ============================================================
+    // =====================================================
+    // DRAW
+    // =====================================================
 
-window.addEventListener(
-    "message",
-    function(event) {
+    function draw(event) {
 
-        if (
-            !event.data
-            || event.data.type
-                !== "streamlit:render"
-        ) {
-
+        if (!drawing) {
             return;
         }
 
+        event.preventDefault();
 
-        // Beri tahu tinggi iframe
-        sendToStreamlit(
-            "streamlit:setFrameHeight",
-            225
+        const position =
+            getPosition(event);
+
+        ctx.beginPath();
+
+        ctx.moveTo(
+            lastX,
+            lastY
         );
+
+        ctx.lineTo(
+            position.x,
+            position.y
+        );
+
+        ctx.stroke();
+
+        lastX = position.x;
+
+        lastY = position.y;
+
+        hasSignature = true;
+
+        status.textContent =
+            "Tanda tangan sudah dibuat";
+
     }
-);
 
 
-// ============================================================
-// INITIAL FRAME HEIGHT
-// ============================================================
+    // =====================================================
+    // STOP DRAWING
+    // =====================================================
 
-sendToStreamlit(
-    "streamlit:setFrameHeight",
-    225
-);
+    function stopDrawing(event) {
 
+        if (!drawing) {
+            return;
+        }
 
-// ============================================================
-// RESIZE
-// ============================================================
+        event.preventDefault();
 
-window.addEventListener(
-    "resize",
-    function() {
+        drawing = false;
 
-        resizeCanvas();
+        try {
+
+            canvas.releasePointerCapture(
+                event.pointerId
+            );
+
+        } catch (error) {
+        }
+
+        if (!hasSignature) {
+            return;
+        }
+
+        // Ambil gambar canvas
+        const imageData =
+            canvas.toDataURL("image/png");
+
+        // Kirim ke Streamlit
+        sendComponentValue(imageData);
+
     }
-);
 
+
+    // =====================================================
+    // EVENTS
+    // =====================================================
+
+    canvas.addEventListener(
+        "pointerdown",
+        startDrawing
+    );
+
+    canvas.addEventListener(
+        "pointermove",
+        draw
+    );
+
+    canvas.addEventListener(
+        "pointerup",
+        stopDrawing
+    );
+
+    canvas.addEventListener(
+        "pointercancel",
+        stopDrawing
+    );
+
+
+    // =====================================================
+    // CLEAR
+    // =====================================================
+
+    clearButton.addEventListener(
+        "click",
+        function(event) {
+
+            event.preventDefault();
+
+            ctx.clearRect(
+                0,
+                0,
+                canvas.width,
+                canvas.height
+            );
+
+            hasSignature = false;
+
+            status.textContent =
+                "Belum ada tanda tangan";
+
+            sendComponentValue("");
+
+        }
+    );
+
+
+    // =====================================================
+    // STREAMLIT RENDER
+    // =====================================================
+
+    window.addEventListener(
+        "message",
+        function(event) {
+
+            if (!event.data) {
+                return;
+            }
+
+            if (
+                event.data.type ===
+                "streamlit:render"
+            ) {
+
+                setFrameHeight(225);
+
+            }
+
+        }
+    );
+
+
+    // =====================================================
+    // RESIZE
+    // =====================================================
+
+    window.addEventListener(
+        "resize",
+        function() {
+
+            // Jangan resize canvas setelah user
+            // mulai tanda tangan karena bisa menghapus
+            // gambar.
+            if (!hasSignature) {
+                resizeCanvas();
+            }
+
+            setFrameHeight(225);
+
+        }
+    );
+
+
+    // =====================================================
+    // START COMPONENT
+    // =====================================================
+
+    sendComponentReady();
+
+    setFrameHeight(225);
 
 </script>
 
 </body>
-
 </html>
