@@ -3,11 +3,7 @@ import os
 import streamlit.components.v1 as components
 
 
-# ============================================================
-# REGISTER CUSTOM SIGNATURE COMPONENT
-# ============================================================
-
-_COMPONENT_DIR = os.path.join(
+_COMPONENT_PATH = os.path.join(
     os.path.dirname(__file__),
     "signature_component"
 )
@@ -15,24 +11,23 @@ _COMPONENT_DIR = os.path.join(
 
 _signature_component = components.declare_component(
     "signature_pad",
-    path=_COMPONENT_DIR
+    path=_COMPONENT_PATH
 )
 
-
-# ============================================================
-# SIGNATURE PAD
-# ============================================================
 
 def signature_pad(
     key=None,
     width=350,
-    height=180,
+    height=180
 ):
     """
-    Menampilkan canvas tanda tangan.
+    Signature pad untuk Streamlit.
 
     Return:
-        Data URL PNG atau None jika belum ada tanda tangan.
+        PNG dalam bentuk Data URL:
+        data:image/png;base64,...
+
+        atau None jika belum ada tanda tangan.
     """
 
     return _signature_component(
